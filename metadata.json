@@ -1,0 +1,6 @@
+{
+  "name": "Mooncraft Bespoke Resin & Wedding Gifts",
+  "description": "A premium bespoke e-commerce experience for handcrafted resin art, luxury custom wedding gifts, and home decor by Mooncraft.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

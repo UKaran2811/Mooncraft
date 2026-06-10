@@ -1,0 +1,37 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400&family=JetBrains+Mono:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,500;1,450&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Custom premium scrollbar styling */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #fbfbfb;
+}
+::-webkit-scrollbar-thumb {
+  background: #e0e0e0;
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #bababa;
+}
+
+/* Global focus states and resets */
+input, textarea, select {
+  border-radius: 0;
+}
+input:focus, textarea:focus, select:focus {
+  outline: none;
+}
+
+/* Aspect ratio utility support fallback of tailwind */
+.aspect-4\/5 {
+  aspect-ratio: 4 / 5;
+}
