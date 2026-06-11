@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import Lenis from 'lenis';
 import { motion, AnimatePresence } from 'motion/react';
 import { useRouter, initHashRouting } from './useRouter';
 import Header from './components/Header';
@@ -19,6 +20,30 @@ export default function App() {
     const cleanup = initHashRouting(navigateTo);
     return cleanup;
   }, [navigateTo]);
+
+  // Initialize soft scroll via Lenis
+  useEffect(() => {
+    const lenis = new Lenis({
+      duration: 1.5,
+      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+      orientation: 'vertical',
+      gestureOrientation: 'vertical',
+      smoothWheel: true,
+      wheelMultiplier: 1.2,
+      touchMultiplier: 2,
+    });
+
+    function raf(time: number) {
+      lenis.raf(time);
+      requestAnimationFrame(raf);
+    }
+
+    requestAnimationFrame(raf);
+
+    return () => {
+      lenis.destroy();
+    };
+  }, []);
 
   // Render correct page view inside smooth layout
   const renderPage = () => {
@@ -49,7 +74,7 @@ export default function App() {
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -15 }}
-            transition={{ duration: 0.45, ease: "easeInOut" }}
+            transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
             className="w-full h-full flex-1 flex flex-col justify-start"
           >
             {renderPage()}
