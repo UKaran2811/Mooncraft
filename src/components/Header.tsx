@@ -362,7 +362,7 @@ export default function Header() {
 
               <div className="mt-auto border-t border-neutral-100 pt-6 flex flex-col gap-3">
                 <p className="text-[9px] uppercase tracking-widest text-neutral-400">Inquiries</p>
-                <p className="text-[11px] font-mono tracking-wide text-neutral-800">support@mooncraft.in</p>
+                <p className="text-[11px] font-mono tracking-wide text-neutral-800">monika.radadiya4757@gmail.com</p>
                 <p className="text-[11px] font-sans text-neutral-500 leading-relaxed">
                   Bespoke preservation requests typical timeline: 3-4 weeks.
                 </p>
