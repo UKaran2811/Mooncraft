@@ -19,84 +19,25 @@ export default function Home() {
   return (
     <div className="w-full bg-white text-black pt-[116px]">
       
-      {/* A. Hero Section (Split Screen Artistic Layout) */}
-      <section className="relative min-h-[550px] lg:h-[calc(100vh-116px)] w-full overflow-hidden flex flex-col lg:flex-row border-b border-zinc-100 bg-white">
-        
-        {/* Subtle Side Detail from Design HTML */}
-        <div className="absolute left-4 bottom-40 -rotate-90 origin-left text-[9px] tracking-[0.4em] uppercase text-zinc-300 font-medium z-10 pointer-events-none hidden lg:block">
-          Handcrafted in Jaipur — Est 2024
+      {/* A. Hero Section (New Carousel Layout) */}
+      <section className="relative w-full overflow-hidden bg-[#e8e8e8] pt-16 pb-0 flex flex-col items-center">
+        <div className="text-center mb-10 relative z-10 flex flex-col items-center mt-8">
+          <span className="text-sm tracking-widest text-zinc-600 font-sans uppercase font-medium mb-2 block">All New</span>
+          <h1 className="text-5xl sm:text-6xl md:text-7xl font-serif italic font-bold text-[#444444] mb-3 tracking-tight">GIFT SOLUTION</h1>
+          <span className="text-sm tracking-[0.4em] text-zinc-600 font-sans uppercase font-medium block">Under One Roof</span>
         </div>
 
-        {/* Hero Left Content Area */}
-        <div className="w-full lg:w-1/2 p-8 sm:p-16 lg:p-20 flex flex-col justify-center bg-zinc-50/50 relative z-10 border-r border-zinc-100">
-          <div className="max-w-md">
-            <motion.span 
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
-              className="text-[10px] uppercase tracking-[0.3em] text-zinc-500 mb-4 block"
-            >
-              Bespoke Preservation
-            </motion.span>
-            
-            <motion.h2 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 1.2, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
-              className="text-4xl sm:text-5xl lg:text-5.5xl font-serif text-zinc-900 leading-tight mb-6 italic"
-            >
-              The Art of <br/>Eternal Flora
-            </motion.h2>
-
-            <motion.p 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 1.2, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
-              className="text-xs sm:text-sm text-zinc-600 leading-relaxed mb-8 max-w-sm"
-            >
-              Handcrafted resin masterpieces that capture your most cherished memories in crystal-clear permanence. Capturing wedding garlands and personal milestones.
-            </motion.p>
-
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 1.2, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
-              className="flex flex-wrap gap-4"
-            >
-              <button
-                id="hero-shop-all-btn"
-                onClick={() => navigateTo({ type: 'shop' })}
-                className="bg-black hover:bg-zinc-800 text-white px-8 py-4 text-[11px] tracking-[0.2em] uppercase font-semibold transition-all rounded-xs cursor-pointer"
-              >
-                Shop the Collection
-              </button>
-              <button
-                id="hero-learn-more-btn"
-                onClick={() => {
-                  const element = document.getElementById('about-story');
-                  element?.scrollIntoView({ behavior: 'smooth' });
-                }}
-                className="bg-transparent hover:bg-zinc-100 text-zinc-950 border border-zinc-300 px-6 py-4 text-[11px] tracking-[0.2em] uppercase font-semibold transition-all rounded-xs cursor-pointer"
-              >
-                Our Story
-              </button>
-            </motion.div>
+        {/* Infinite Auto-scrolling Carousel */}
+        <div className="w-full relative overflow-hidden mt-6">
+          <div className="flex animate-marquee whitespace-nowrap items-end">
+            {/* Duplicate products multiple times to make it seamless */}
+            {[...products, ...products, ...products].map((product, idx) => (
+               <div key={idx} className="inline-block mx-2 relative w-[180px] h-[220px] sm:w-[220px] sm:h-[280px] shrink-0 overflow-hidden rounded-t-[2.5rem] rounded-b-xl shadow-lg transform transition-transform hover:-translate-y-2">
+                 <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
+               </div>
+            ))}
           </div>
         </div>
-
-        {/* Hero Right Visual Column */}
-        <div className="w-full lg:w-1/2 h-[350px] lg:h-full relative bg-zinc-200 overflow-hidden">
-          <div 
-            className="absolute inset-0 bg-cover bg-center transition-transform duration-1000 saturate-75 hover:scale-[1.03]"
-            style={{ backgroundImage: `url('/images/hexgon photo frame, price 3000.jpeg')` }}
-          ></div>
-          <div className="absolute inset-0 bg-black/5"></div>
-          
-          <div className="absolute right-8 bottom-8 text-white/80 font-mono text-[9px] tracking-[0.35em] uppercase">
-            Hexagon Photo Frame • Jaipur
-          </div>
-        </div>
-
       </section>
 
       {/* A.2 Statistics Banner (Top) */}
