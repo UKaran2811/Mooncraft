@@ -3,6 +3,19 @@ build/
 dist/
 coverage/
 .DS_Store
+Thumbs.db
 *.log
-.env*
+npm-debug.log*
+
+# Environment secrets — NEVER commit these
+.env
+.env.local
+.env.production
+.env.*.local
+# Keep the example file
 !.env.example
+
+# Editor
+.vscode/settings.json
+*.suo
+*.user

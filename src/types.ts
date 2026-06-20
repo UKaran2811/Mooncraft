@@ -36,4 +36,7 @@ export type PageRoute =
   | { type: 'home' }
   | { type: 'product'; id: string }
   | { type: 'checkout' }
-  | { type: 'shop'; filterCategory?: string };
+  | { type: 'shop'; filterCategory?: string }
+  | { type: 'admin' }
+  | { type: 'admin-login' };
+

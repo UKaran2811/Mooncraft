@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useCartStore } from '../useCartStore';
 import { useRouter } from '../useRouter';
 import { ShieldCheck, Lock, CreditCard, ChevronRight, CheckCircle2, ShoppingBag } from 'lucide-react';
+import { ordersAPI } from '../services/api';
 
 export default function Checkout() {
   const { items, clearCart } = useCartStore();
@@ -26,24 +27,76 @@ export default function Checkout() {
   const [isOrdering, setIsOrdering] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [orderNumber, setOrderNumber] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
 
   const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const shipping = subtotal > 1500 ? 0 : 250;
   const total = subtotal + shipping;
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (items.length === 0) return;
-
     setIsOrdering(true);
-    
-    // Simulate payment authorization gateway
-    setTimeout(() => {
-      setIsOrdering(false);
+    setErrorMsg('');
+
+    try {
+      const orderPayload = {
+        customer: {
+          name: `${firstName} ${lastName}`.trim(),
+          email,
+          phone,
+          address: { line1: address, city, state, zip: zipCode },
+        },
+        items: items.map((item) => ({
+          productId: item.id,
+          quantity: item.quantity,
+          selectedOption: item.selectedOption,
+        })),
+        paymentMethod: 'cod', // Change to 'razorpay' when Razorpay keys are live
+      };
+
+      const res = await ordersAPI.place(orderPayload);
+
+      // ── If Razorpay is configured, open Razorpay checkout modal ──
+      if (res.razorpayOrderId && res.razorpayKeyId) {
+        const options = {
+          key: res.razorpayKeyId,
+          amount: res.amount * 100,
+          currency: 'INR',
+          name: 'Mooncraft Studio',
+          description: 'Bespoke Resin Art Order',
+          order_id: res.razorpayOrderId,
+          handler: async (payment: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {
+            await ordersAPI.verifyPayment({
+              razorpay_order_id: payment.razorpay_order_id,
+              razorpay_payment_id: payment.razorpay_payment_id,
+              razorpay_signature: payment.razorpay_signature,
+              orderNumber: res.orderNumber,
+            });
+            setOrderNumber(res.orderNumber);
+            setOrderSuccess(true);
+          },
+          prefill: { name: `${firstName} ${lastName}`, email, contact: phone },
+          theme: { color: '#111111' },
+          modal: {
+            ondismiss: () => setIsOrdering(false),
+          },
+        };
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rzp = new (window as any).Razorpay(options);
+        rzp.open();
+        return; // Don't clear cart until payment confirmed
+      }
+
+      // ── COD / no Razorpay → order already confirmed by backend ──
+      setOrderNumber(res.orderNumber);
       setOrderSuccess(true);
-      const randomOrderNumber = 'AMX-' + Math.floor(100000 + Math.random() * 900000);
-      setOrderNumber(randomOrderNumber);
-    }, 1800);
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'Failed to place order. Please try again.');
+    } finally {
+      setIsOrdering(false);
+    }
   };
 
   const handleFinish = () => {
@@ -51,6 +104,7 @@ export default function Checkout() {
     setOrderSuccess(false);
     navigateTo({ type: 'home' });
   };
+
 
   if (items.length === 0 && !orderSuccess) {
     return (
@@ -305,6 +359,13 @@ export default function Checkout() {
               </div>
             </div>
 
+            {/* Error message */}
+            {errorMsg && (
+              <div className="w-full bg-red-50 border border-red-200 rounded p-3 text-xs text-red-600 font-sans">
+                ⚠️ {errorMsg}
+              </div>
+            )}
+
             {/* Proceed Actions Button */}
             <button
               id="submit-order-checkout-btn"
@@ -315,10 +376,10 @@ export default function Checkout() {
               {isOrdering ? (
                 <>
                   <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  Authorizing Payment Gateway...
+                  Processing Order...
                 </>
               ) : (
-                `Authorize payment & place order • ₹${total.toLocaleString('en-IN')}`
+                `Place Order • ₹${total.toLocaleString('en-IN')}`
               )}
             </button>
           </div>
