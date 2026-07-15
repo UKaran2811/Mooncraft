@@ -93,23 +93,20 @@ export default function Footer() {
               Category
             </h4>
             <div className="flex flex-col gap-2.5 font-sans text-sm text-neutral-400">
+              <button onClick={() => navigateTo({ type: 'shop' })} className="text-left hover:text-white transition-colors cursor-pointer">
+                All Collections
+              </button>
               <button onClick={() => handleQuickLink("Resin Art")} className="text-left hover:text-white transition-colors cursor-pointer">
                 Resin Art
               </button>
-              <button onClick={() => handleQuickLink("Handmade Gift")} className="text-left hover:text-white transition-colors cursor-pointer">
-                Handmade Gift
+              <button onClick={() => handleQuickLink("Wedding Favors")} className="text-left hover:text-white transition-colors cursor-pointer">
+                Wedding Favors
               </button>
-              <button onClick={() => handleQuickLink("Home decor")} className="text-left hover:text-white transition-colors cursor-pointer">
-                Home decor
+              <button onClick={() => handleQuickLink("Festive Gifting")} className="text-left hover:text-white transition-colors cursor-pointer">
+                Festive Gifting
               </button>
-              <button onClick={() => handleQuickLink("Personalised Gift")} className="text-left hover:text-white transition-colors cursor-pointer">
-                Personalised Gift
-              </button>
-              <button onClick={() => handleQuickLink("Wedding Items")} className="text-left hover:text-white transition-colors cursor-pointer">
-                Wedding Items
-              </button>
-              <button onClick={() => handleQuickLink("Festive Collection")} className="text-left hover:text-white transition-colors cursor-pointer">
-                Festive Collection
+              <button onClick={() => handleQuickLink("Accessories")} className="text-left hover:text-white transition-colors cursor-pointer">
+                Accessories
               </button>
             </div>
           </div>

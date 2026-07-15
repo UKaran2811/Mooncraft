@@ -7,10 +7,27 @@ let accessToken: string | null = null;
 
 export const setAdminToken = (token: string | null) => { adminToken = token; };
 export const setAccessToken = (token: string | null) => { accessToken = token; };
-export const getAdminToken = () => adminToken;
+
 
 interface FetchOptions extends RequestInit {
   isAdmin?: boolean;
+}
+
+/**
+ * Custom error class that preserves the full response payload.
+ * Allows callers to read fields like `cooldownSeconds` (429) or
+ * `errors` (400) from the backend response, not just `message`.
+ */
+export class ApiError extends Error {
+  status: number;
+  data: Record<string, unknown>;
+
+  constructor(message: string, status: number, data: Record<string, unknown> = {}) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.data = data;
+  }
 }
 
 async function apiFetch(path: string, options: FetchOptions = {}) {
@@ -35,7 +52,7 @@ async function apiFetch(path: string, options: FetchOptions = {}) {
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    throw new Error(data.message || `HTTP ${res.status}`);
+    throw new ApiError(data.message || `HTTP ${res.status}`, res.status, data);
   }
 
   return data;
@@ -43,16 +60,54 @@ async function apiFetch(path: string, options: FetchOptions = {}) {
 
 // ── Auth ─────────────────────────────────
 export const authAPI = {
+  // Customer: mobile OTP flow
+  sendOtp: (phone: string) =>
+    apiFetch('/auth/send-otp', { method: 'POST', body: JSON.stringify({ phone }) }),
+
+  verifyOtp: (phone: string, code: string) =>
+    apiFetch('/auth/verify-otp', { method: 'POST', body: JSON.stringify({ phone, code }) }),
+
+  me: () => apiFetch('/auth/me'),
+
+  updateMe: (data: { name?: string; email?: string }) =>
+    apiFetch('/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // Admin
   adminLogin: (email: string, password: string) =>
     apiFetch('/auth/admin/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
 
   adminMe: () => apiFetch('/auth/admin/me', { isAdmin: true }),
+
+  // Password reset — email
+  forgotPassword: (email: string) =>
+    apiFetch('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }),
+
+  resetPassword: (token: string, password: string) =>
+    apiFetch('/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, password }) }),
+
+  // Password reset — phone OTP (verify code + set password in one call)
+  forgotPasswordOtp: (phone: string) =>
+    apiFetch('/auth/forgot-password-otp', { method: 'POST', body: JSON.stringify({ phone }) }),
+
+  resetPasswordWithOtp: (phone: string, code: string, password: string) =>
+    apiFetch('/auth/reset-password-otp', { method: 'POST', body: JSON.stringify({ phone, code, password }) }),
+
+  // Shared
   logout: () => apiFetch('/auth/logout', { method: 'POST' }),
 };
 
 // ── Products ──────────────────────────────
 export const productsAPI = {
-  getAll: () => apiFetch('/products', { isAdmin: true }),
+  // Public: fetch active products with optional filters
+  getAll: (params?: Record<string, string>) => {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return apiFetch(`/products${qs}`);
+  },
+
+  // Public: single product by slug ID
+  getOne: (slugId: string) => apiFetch(`/products/${slugId}`),
+
+  // Admin: all products including inactive
   getAllAdmin: () => apiFetch('/products/admin/all', { isAdmin: true }),
 
   create: (data: Record<string, unknown>) =>
@@ -86,6 +141,9 @@ export const ordersAPI = {
 
   cancel: (id: string) => apiFetch(`/orders/${id}`, { method: 'DELETE', isAdmin: true }),
 
+  // Customer's own orders
+  getMy: () => apiFetch('/orders/my'),
+
   // Place order (customer / checkout)
   place: (data: Record<string, unknown>) =>
     apiFetch('/orders', { method: 'POST', body: JSON.stringify(data) }),
@@ -96,6 +154,21 @@ export const ordersAPI = {
 
   track: (orderNumber: string, email: string) =>
     apiFetch(`/orders/track/${orderNumber}?email=${encodeURIComponent(email)}`),
+};
+
+// ── Upload ──────────────────────────────────
+export const uploadAPI = {
+  image: async (file: File): Promise<{ success: boolean; url: string; message: string }> => {
+    const formData = new FormData();
+    formData.append('image', file);
+    const token = adminToken;
+    const res = await fetch(`${API_BASE}/upload/image`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    return res.json();
+  },
 };
 
 // ── Admin Dashboard ────────────────────────

@@ -11,6 +11,10 @@
  * backend/server.js (a wrapper that calls app.listen()).
  */
 
+// Validate env vars on cold start (Vercel serverless)
+const config = require('../config');
+config.validate();
+
 const app = require('../app');
 
 // Vercel expects a function that accepts (req, res)

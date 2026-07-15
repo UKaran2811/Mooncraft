@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS admins (
 CREATE TABLE IF NOT EXISTS users (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name          TEXT,
-  email         TEXT UNIQUE NOT NULL,
+  email         TEXT UNIQUE,
   password_hash TEXT,
   phone         TEXT,
   role          TEXT DEFAULT 'customer',
@@ -205,6 +205,49 @@ INSERT INTO products (slug_id, name, price, description, materials, care_instruc
 ('18', 'Custom Bespoke Wedding Invite',   2000, 'An ultra-premium invitations solution. Made of crystal clear thick acrylic card customized with shimmering metallic screenprinting and enclosed in custom textured velvet boxes.', 'Thick Polished Acrylic Plates, Screenprinted Gold Inks, Custom Textured Cardboard Envelope.', 'Avoid rubbing cards together directly. Keep stored in protective tissue sleeves.', 'Wedding Favors', '/images/Wedding Invite, price 2000.jpeg', 'https://images.unsplash.com/photo-1515934751635-c81c6bc9a2d8?q=80&w=800&auto=format&fit=crop', '{}', false),
 ('19', 'Wooden Preserved Photo Frame',    1500, 'Warm, natural teakwood meets high-gloss clear resin. This 8-inch frame contains raw organic bark framing a crystal glossy resin center window housing your beautiful moments.', 'Premium Teak Bark Segment, Clear Epoxy Resin Layer, Polished Brass Back Screws.', 'Keep dry. Wipe timber oil on wooden elements once in a while to preserve grain beauty.', 'Resin Art', '/images/wooden photo frame, price 1500.jpeg', 'https://images.unsplash.com/photo-1544273677-c433136021d4?q=80&w=800&auto=format&fit=crop', '{}', false)
 ON CONFLICT (slug_id) DO NOTHING;
+
+-- ─────────────────────────────────────────
+-- TABLE: otps
+-- Mobile phone OTP auth — sent on /api/auth/send-otp, verified on /api/auth/verify-otp
+-- One active code per phone at a time (upsert by phone).
+-- Auto-cleaned by the app after verification or after expires_at.
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS otps (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  phone       TEXT UNIQUE NOT NULL,         -- E.164-ish, e.g. +919876543210
+  code        TEXT NOT NULL,                -- 6-digit OTP (hashed? no — short TTL, low value)
+  attempts    INTEGER DEFAULT 0,            -- brute-force guard (max 5)
+  expires_at  TIMESTAMPTZ NOT NULL,
+  verified    BOOLEAN DEFAULT false,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_otps_phone     ON otps(phone);
+CREATE INDEX IF NOT EXISTS idx_otps_expires   ON otps(expires_at);
+
+ALTER TABLE otps ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role_all" ON otps
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- ─────────────────────────────────────────
+-- TABLE: password_resets
+-- Used by /api/auth/forgot-password + /api/auth/reset-password
+-- One active token per user (upsert on user_id).
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS password_resets (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  email       TEXT NOT NULL,
+  token       TEXT UNIQUE NOT NULL,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  used        BOOLEAN DEFAULT false,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_password_resets_token      ON password_resets(token);
+CREATE INDEX IF NOT EXISTS idx_password_resets_user_id    ON password_resets(user_id);
+
+ALTER TABLE password_resets ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role_all" ON password_resets
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ─────────────────────────────────────────
 -- NOTE: Admin account is created via seeder.js

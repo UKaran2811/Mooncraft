@@ -1,12 +1,23 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const crypto = require('crypto');
+const rateLimit = require('express-rate-limit');
 const supabase = require('../lib/supabase');
 const { requireAdmin, requireAuth, optionalAuth } = require('../middleware/auth');
 const { sendOrderConfirmationEmail, sendAdminOrderAlert } = require('../services/emailService');
-const { sendAdminWhatsAppAlert } = require('../services/whatsappService');
+const { sendAdminWhatsAppAlert, sendCustomerOrderConfirmation, sendCustomerStatusUpdate } = require('../services/whatsappService');
+const { shapeOrder, shapeAdminOrder } = require('../utils/orderShaper');
 
 const router = express.Router();
+
+// Rate limiter for public order tracking (prevent enumeration)
+const trackingLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { success: false, message: 'Too many tracking requests. Try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 const validate = (req, res) => {
   const errors = validationResult(req);
@@ -46,7 +57,7 @@ const generateOrderNumber = () => {
  */
 router.post(
   '/',
-  optionalAuth,
+  requireAuth,
   [
     body('customer.name').trim().notEmpty().withMessage('Customer name required'),
     body('customer.email').isEmail().normalizeEmail().withMessage('Valid email required'),
@@ -56,6 +67,9 @@ router.post(
     body('customer.address.state').trim().notEmpty().withMessage('State required'),
     body('customer.address.zip').trim().notEmpty().withMessage('ZIP required'),
     body('items').isArray({ min: 1 }).withMessage('At least one item required'),
+    body('items.*.productId').trim().notEmpty().withMessage('Product ID required for each item'),
+    body('items.*.quantity').isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
+    body('paymentMethod').optional().isIn(['razorpay', 'cod']),
   ],
   async (req, res) => {
     if (!validate(req, res)) return;
@@ -155,7 +169,7 @@ router.post(
           .update({ status: 'confirmed', payment_status: 'paid', paid_at: new Date().toISOString() })
           .eq('id', order.id);
 
-        const shaped = shapeForNotifications({ ...order, items: validatedItems });
+        const shaped = shapeOrder({ ...order, items: validatedItems });
         await sendNotifications(shaped, order.id);
       }
 
@@ -236,8 +250,9 @@ router.post('/verify-payment', async (req, res) => {
 /**
  * GET /api/orders/track/:orderNumber
  * Public order tracking (requires email verification)
+ * NOTE: Must be before /:id wildcard
  */
-router.get('/track/:orderNumber', async (req, res) => {
+router.get('/track/:orderNumber', trackingLimiter, async (req, res) => {
   try {
     const { email } = req.query;
     if (!email) return res.status(400).json({ success: false, message: 'Email required for tracking' });
@@ -264,13 +279,19 @@ router.get('/track/:orderNumber', async (req, res) => {
 /**
  * GET /api/orders/my
  * Logged-in customer's own orders
+ * NOTE: Must be before /:id wildcard
  */
 router.get('/my', requireAuth, async (req, res) => {
   try {
+    // Filter by user_id (for OTP users who have null email) OR customer_email
+    // for backward compatibility with orders placed before user_id was tracked.
+    const conditions = [`user_id.eq.${req.user.id}`];
+    if (req.user.email) conditions.push(`customer_email.eq.${req.user.email}`);
+
     const { data: orders } = await supabase
       .from('orders')
       .select('*, order_items(*)')
-      .eq('customer_email', req.user.email)
+      .or(conditions.join(','))
       .order('created_at', { ascending: false });
 
     res.json({ success: true, data: orders || [] });
@@ -314,7 +335,7 @@ router.get('/', requireAdmin, async (req, res) => {
 
     res.json({
       success: true,
-      data: orders,
+      data: (orders || []).map(shapeAdminOrder),
       pagination: { total: count, page: Number(page), pages: Math.ceil(count / limit) },
     });
   } catch (err) {
@@ -336,7 +357,7 @@ router.get('/:id', requireAdmin, async (req, res) => {
       .single();
 
     if (error || !order) return res.status(404).json({ success: false, message: 'Order not found' });
-    res.json({ success: true, data: order });
+    res.json({ success: true, data: shapeAdminOrder(order) });
   } catch {
     res.status(500).json({ success: false, message: 'Server error' });
   }
@@ -367,6 +388,16 @@ router.patch(
         .single();
 
       if (error || !order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+      // Fetch items for notification
+      const { data: items } = await supabase
+        .from('order_items')
+        .select('*')
+        .eq('order_id', order.id);
+
+      const shaped = shapeForNotifications({ ...order, items: items || [] });
+      sendCustomerStatusUpdate(shaped, status).catch(() => {});
+
       res.json({ success: true, data: order, message: `Order status → ${status}` });
     } catch {
       res.status(500).json({ success: false, message: 'Server error' });
@@ -398,45 +429,17 @@ router.delete('/:id', requireAdmin, async (req, res) => {
 // HELPERS
 // ──────────────────────────────────────────────
 
-function shapeForNotifications(row) {
-  return {
-    _id: row.id,
-    orderNumber: row.order_number,
-    customer: {
-      name: row.customer_name,
-      email: row.customer_email,
-      phone: row.customer_phone,
-      address: {
-        line1: row.address_line1,
-        city: row.address_city,
-        state: row.address_state,
-        zip: row.address_zip,
-      },
-    },
-    items: (row.items || []).map((i) => ({
-      name: i.name,
-      price: Number(i.price),
-      quantity: i.quantity,
-      selectedOption: i.selected_option,
-    })),
-    subtotal: Number(row.subtotal),
-    shipping: Number(row.shipping),
-    total: Number(row.total),
-    status: row.status,
-    estimatedDelivery: row.estimated_delivery || '14 - 21 Days',
-  };
-}
-
 async function sendNotifications(shaped, orderId) {
-  const [emailOk, , waOk] = await Promise.allSettled([
+  const [emailOk, , waAdminOk, waCustomerOk] = await Promise.allSettled([
     sendOrderConfirmationEmail(shaped),
     sendAdminOrderAlert(shaped),
     sendAdminWhatsAppAlert(shaped),
+    sendCustomerOrderConfirmation(shaped),
   ]);
 
   await supabase.from('orders').update({
     email_sent: emailOk.status === 'fulfilled' && emailOk.value === true,
-    whatsapp_sent: waOk.status === 'fulfilled' && waOk.value === true,
+    whatsapp_sent: waCustomerOk.status === 'fulfilled' && waCustomerOk.value === true,
   }).eq('id', orderId);
 }
 

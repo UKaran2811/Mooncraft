@@ -143,7 +143,7 @@ export const products: Product[] = [
     price: 3000,
     image: "/images/hexgon photo frame, price 3000.jpeg",
     fallbackImage: "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?q=80&w=800&auto=format&fit=crop",
-    description: "Our signature editorial piece. Massive 12-inch hexagonal solid crystal-clear block framing your memorable photo, surrounded beautifully by customized hand-dried wedding blossoms, baby’s breath and signature gold leaf.",
+    description: "Our signature editorial piece. Massive 12-inch hexagonal solid crystal-clear block framing your memorable photo, surrounded beautifully by customized hand-dried wedding blossoms, baby's breath and signature gold leaf.",
     materials: "Optical Casting Resin, High Definition Color Matte Printed Photo, Full Pressed Floral Garland, Polished Maple Display stand.",
     careInstructions: "Keep strictly indoors away from sunny windows. Avoid harsh scrubbing or abrasive paper towel cleaning.",
     category: "Resin Art",

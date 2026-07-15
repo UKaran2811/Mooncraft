@@ -9,6 +9,13 @@ export interface Product {
   careInstructions: string;
   category: 'Resin Art' | 'Wedding Favors' | 'Festive Gifting' | 'Accessories';
   gallery: string[];
+
+  // Optional fields populated when fetched from the API
+  stock?: number;
+  isActive?: boolean;
+  isFeatured?: boolean;
+  totalSold?: number;
+  createdAt?: string;
 }
 
 export interface CartItem extends Product {
@@ -38,5 +45,7 @@ export type PageRoute =
   | { type: 'checkout' }
   | { type: 'shop'; filterCategory?: string }
   | { type: 'admin' }
-  | { type: 'admin-login' };
+  | { type: 'admin-login' }
+  | { type: 'reset-password'; token?: string }
+  | { type: 'my-orders' };
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronRight, ChevronDown, Plus, Minus, ShoppingBag, ShieldCheck, Truck, RefreshCcw } from 'lucide-react';
-import { products } from '../data';
+import { useProduct, useProducts } from '../hooks/useProducts';
 import { useCartStore } from '../useCartStore';
 import { useRouter } from '../useRouter';
 import ProductCard from '../components/ProductCard';
@@ -12,15 +12,20 @@ export default function ProductDetail() {
 
   // Find routing product ID
   const productId = route.type === 'product' ? route.id : '';
-  const product = useMemo(() => {
-    return products.find((p) => p.id === productId) || products[0];
-  }, [productId]);
+
+  // Fetch this product from backend (falls back to static data)
+  const { product: fetchedProduct, loading: productLoading } = useProduct(productId);
+  // Fetch all products for related recommendations
+  const { products: allProducts } = useProducts();
+
+  // Use fetched product, with a safe placeholder while loading
+  const product = fetchedProduct;
 
   const [quantity, setQuantity] = useState<number>(1);
-  const [selectedImage, setSelectedImage] = useState<string>(product.image);
+  const [selectedImage, setSelectedImage] = useState<string>('');
   const [activeAccordion, setActiveAccordion] = useState<'desc' | 'materials' | 'care' | null>('desc');
 
-  // Sync state when product ID changes
+  // Sync state when product changes
   useEffect(() => {
     if (product) {
       setSelectedImage(product.image);
@@ -29,7 +34,7 @@ export default function ProductDetail() {
   }, [product]);
 
   const handleAddToCart = () => {
-    // Add multiple quantities
+    if (!product) return;
     for (let i = 0; i < quantity; i++) {
       addItem(product);
     }
@@ -45,10 +50,31 @@ export default function ProductDetail() {
 
   // Recommendations: products from same category, excluding current product
   const relatedProducts = useMemo(() => {
-    return products
+    if (!product) return [];
+    return allProducts
       .filter((p) => p.category === product.category && p.id !== product.id)
       .slice(0, 4);
-  }, [product]);
+  }, [product, allProducts]);
+
+  // Loading skeleton
+  if (productLoading || !product) {
+    return (
+      <div className="w-full bg-white text-black pt-[116px] min-h-screen">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-16">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-14 animate-pulse">
+            <div className="lg:col-span-7 aspect-[4/5] bg-neutral-100 rounded" />
+            <div className="lg:col-span-5 flex flex-col gap-4">
+              <div className="h-3 bg-neutral-100 rounded w-1/3" />
+              <div className="h-6 bg-neutral-100 rounded w-2/3" />
+              <div className="h-5 bg-neutral-100 rounded w-1/4" />
+              <div className="h-24 bg-neutral-100 rounded mt-4" />
+              <div className="h-11 bg-neutral-100 rounded mt-4" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full bg-white text-black pt-[116px] min-h-screen">

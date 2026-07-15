@@ -5,12 +5,14 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
+const path = require('path');
 
 // Route imports
-const authRoutes = require('../routes/auth');
-const productRoutes = require('../routes/products');
-const orderRoutes = require('../routes/orders');
-const adminRoutes = require('../routes/admin');
+const authRoutes = require('./routes/auth');
+const productRoutes = require('./routes/products');
+const orderRoutes = require('./routes/orders');
+const adminRoutes = require('./routes/admin');
+const uploadRoutes = require('./routes/upload');
 
 const app = express();
 
@@ -24,6 +26,19 @@ app.use(
     contentSecurityPolicy: false, // Handled by frontend
   })
 );
+
+// Dev request logger — disabled in production
+if (process.env.NODE_ENV !== 'production') {
+  app.use((req, _res, next) => {
+    const start = Date.now();
+    _res.on('finish', () => {
+      const ms = Date.now() - start;
+      const color = _res.statusCode >= 500 ? '\x1b[31m' : _res.statusCode >= 400 ? '\x1b[33m' : '\x1b[32m';
+      console.log(`${color}${req.method}\x1b[0m ${req.path} → ${_res.statusCode} (${ms}ms)`);
+    });
+    next();
+  });
+}
 
 // CORS — allow frontend origin(s)
 const allowedOrigins = [
@@ -50,7 +65,17 @@ app.use(
 );
 
 // Body parsers
-app.use(express.json({ limit: '10mb' }));
+// NOTE: Razorpay webhook needs raw body — register it BEFORE express.json()
+// The webhook route uses its own express.raw() parser inline (see below).
+// All other routes use the parsers registered here.
+app.use((req, res, next) => {
+  // Preserve raw body for Razorpay webhook signature verification
+  if (req.path === '/api/webhooks/razorpay') {
+    express.raw({ type: 'application/json' })(req, res, next);
+  } else {
+    express.json({ limit: '10mb' })(req, res, next);
+  }
+});
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
@@ -86,18 +111,21 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Serve uploaded images
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // ──────────────────────────────────────────────
 // RAZORPAY WEBHOOK
-// Raw body required for HMAC signature verification
+// Raw body handled by the conditional middleware above (before express.json)
 // ──────────────────────────────────────────────
 app.post(
   '/api/webhooks/razorpay',
-  express.raw({ type: 'application/json' }),
   async (req, res) => {
     try {
       const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
@@ -119,9 +147,10 @@ app.post(
       console.log('🔔 Razorpay webhook event:', event.event);
 
       if (event.event === 'payment.captured') {
-        const supabase = require('../lib/supabase');
-        const { sendOrderConfirmationEmail, sendAdminOrderAlert } = require('../services/emailService');
-        const { sendAdminWhatsAppAlert } = require('../services/whatsappService');
+        const supabase = require('./lib/supabase');
+        const { sendOrderConfirmationEmail, sendAdminOrderAlert } = require('./services/emailService');
+        const { sendAdminWhatsAppAlert } = require('./services/whatsappService');
+        const { shapeOrder } = require('./utils/orderShaper');
 
         const payment = event.payload.payment.entity;
 
@@ -140,12 +169,17 @@ app.post(
 
         if (!error && order) {
           // Reshape for notification services
-          const shaped = reshapeOrder(order);
-          await Promise.all([
+          const shaped = shapeOrder(order);
+          const [emailResult, , waResult] = await Promise.allSettled([
             sendOrderConfirmationEmail(shaped),
             sendAdminOrderAlert(shaped),
             sendAdminWhatsAppAlert(shaped),
           ]);
+          // Track whether notifications were sent
+          await supabase.from('orders').update({
+            email_sent: emailResult.status === 'fulfilled' && emailResult.value === true,
+            whatsapp_sent: waResult.status === 'fulfilled' && waResult.value === true,
+          }).eq('id', order.id);
         }
       }
 
@@ -187,36 +221,6 @@ app.use((err, req, res, _next) => {
   });
 });
 
-// ──────────────────────────────────────────────
-// HELPER — reshape Supabase flat row → notification shape
-// ──────────────────────────────────────────────
-function reshapeOrder(row) {
-  return {
-    _id: row.id,
-    orderNumber: row.order_number,
-    customer: {
-      name: row.customer_name,
-      email: row.customer_email,
-      phone: row.customer_phone,
-      address: {
-        line1: row.address_line1,
-        city: row.address_city,
-        state: row.address_state,
-        zip: row.address_zip,
-      },
-    },
-    items: (row.order_items || []).map((i) => ({
-      name: i.name,
-      price: i.price,
-      quantity: i.quantity,
-      selectedOption: i.selected_option,
-    })),
-    subtotal: row.subtotal,
-    shipping: row.shipping,
-    total: row.total,
-    status: row.status,
-    estimatedDelivery: row.estimated_delivery,
-  };
-}
+
 
 module.exports = app;

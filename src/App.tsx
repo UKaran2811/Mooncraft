@@ -12,13 +12,20 @@ import ProductDetail from './pages/ProductDetail';
 import Checkout from './pages/Checkout';
 import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
+import ResetPassword from './pages/ResetPassword';
+import MyOrders from './pages/MyOrders';
 import { setAdminToken } from './services/api';
+import { useAuthStore } from './useAuthStore';
 
 interface AdminUser { name: string; email: string; role: string; }
 
 export default function App() {
   const { route, navigateTo } = useRouter();
   const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
+  const hydrate = useAuthStore((s) => s.hydrate);
+
+  // Hydrate customer auth (OTP session) from sessionStorage on first mount
+  useEffect(() => { hydrate(); }, [hydrate]);
 
   // Initialize synchronous hash routing
   useEffect(() => {
@@ -74,6 +81,11 @@ export default function App() {
     return <AdminDashboard admin={adminUser} onLogout={handleAdminLogout} />;
   }
 
+  // ── Standalone pages (no header/footer) ───────────────────────
+  if (route.type === 'reset-password') {
+    return <ResetPassword token={route.token} />;
+  }
+
   // ── Storefront routes ──────────────────────────────────────────
   const renderPage = () => {
     switch (route.type) {
@@ -81,6 +93,7 @@ export default function App() {
       case 'shop':     return <Shop />;
       case 'product':  return <ProductDetail />;
       case 'checkout': return <Checkout />;
+      case 'my-orders': return <MyOrders />;
       default:         return <Home />;
     }
   };

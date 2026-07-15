@@ -2,6 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const supabase = require('../lib/supabase');
 const { requireAdmin, requirePermission } = require('../middleware/auth');
+const { camelizeKeys } = require('../utils/orderShaper');
 
 const router = express.Router();
 
@@ -61,23 +62,6 @@ router.get('/', async (req, res) => {
 });
 
 /**
- * GET /api/products/admin/all
- * All products including inactive (admin only)
- */
-router.get('/admin/all', requireAdmin, async (req, res) => {
-  try {
-    const { data: products, error } = await supabase
-      .from('products')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    res.json({ success: true, data: products, total: products.length });
-  } catch (err) {
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-});
-
-/**
  * GET /api/products/:slugId
  * Single product by slug_id (public)
  */
@@ -102,6 +86,24 @@ router.get('/:slugId', async (req, res) => {
 // ──────────────────────────────────────────────
 // ADMIN ONLY
 // ──────────────────────────────────────────────
+
+/**
+ * GET /api/products/admin/all
+ * All products including inactive (admin only)
+ * NOTE: Must be registered before /:slugId wildcard route
+ */
+router.get('/admin/all', requireAdmin, async (req, res) => {
+  try {
+    const { data: products, error } = await supabase
+      .from('products')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json({ success: true, data: (products || []).map(camelizeKeys), total: products.length });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
 
 /**
  * POST /api/products
@@ -140,7 +142,7 @@ router.post(
         .single();
 
       if (error) throw error;
-      res.status(201).json({ success: true, data: product, message: 'Product created' });
+      res.status(201).json({ success: true, data: camelizeKeys(product), message: 'Product created' });
     } catch (err) {
       console.error('Create product error:', err);
       res.status(500).json({ success: false, message: 'Failed to create product' });
@@ -167,7 +169,7 @@ router.put('/:slugId', requireAdmin, requirePermission('manage_products'), async
     if (error || !product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
-    res.json({ success: true, data: product, message: 'Product updated' });
+    res.json({ success: true, data: camelizeKeys(product), message: 'Product updated' });
   } catch (err) {
     console.error('Update product error:', err);
     res.status(500).json({ success: false, message: 'Failed to update product' });
@@ -198,7 +200,7 @@ router.patch('/:slugId/toggle', requireAdmin, async (req, res) => {
     if (error) throw error;
     res.json({
       success: true,
-      data: product,
+      data: camelizeKeys(product),
       message: `Product ${product.is_active ? 'activated' : 'deactivated'}`,
     });
   } catch (err) {

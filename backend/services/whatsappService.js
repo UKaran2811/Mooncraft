@@ -1,17 +1,9 @@
 const https = require('https');
 
-/**
- * Send WhatsApp message via CallMeBot (100% free, no signup)
- *
- * SETUP (one-time, takes 2 minutes):
- * 1. Add +34 644 59 77 79 to your WhatsApp contacts as "CallMeBot"
- * 2. Send this message to it: "I allow callmebot to send me messages"
- * 3. You'll receive your API key via WhatsApp
- * 4. Add to .env:  CALLMEBOT_PHONE=+91XXXXXXXXXX  CALLMEBOT_API_KEY=XXXXXX
- *
- * Limitation: Only sends to the number that activated the API key.
- * Use this for admin notifications. For customer WA, see Twilio note below.
- */
+// ──────────────────────────────────────────────
+// ADMIN WHATSAPP ALERTS (via CallMeBot — free)
+// ──────────────────────────────────────────────
+
 const sendWhatsAppViaCallMeBot = (phone, message, apiKey) => {
   return new Promise((resolve) => {
     const encoded = encodeURIComponent(message);
@@ -23,7 +15,7 @@ const sendWhatsAppViaCallMeBot = (phone, message, apiKey) => {
         res.on('data', (chunk) => (data += chunk));
         res.on('end', () => {
           if (res.statusCode === 200) {
-            console.log('📱 WhatsApp notification sent via CallMeBot');
+            console.log('📱 WhatsApp sent via CallMeBot');
             resolve(true);
           } else {
             console.error('❌ CallMeBot error:', res.statusCode, data);
@@ -38,15 +30,12 @@ const sendWhatsAppViaCallMeBot = (phone, message, apiKey) => {
   });
 };
 
-/**
- * Send admin WhatsApp alert when new order is placed
- */
 const sendAdminWhatsAppAlert = async (order) => {
   const phone = process.env.CALLMEBOT_PHONE;
   const apiKey = process.env.CALLMEBOT_API_KEY;
 
   if (!phone || !apiKey) {
-    console.warn('⚠️  WhatsApp not configured (CALLMEBOT_PHONE / CALLMEBOT_API_KEY missing)');
+    console.warn('⚠️  WhatsApp admin alert not configured (CALLMEBOT_PHONE / CALLMEBOT_API_KEY)');
     return false;
   }
 
@@ -62,22 +51,94 @@ const sendAdminWhatsAppAlert = async (order) => {
     `💰 *Total:* ₹${order.total.toLocaleString('en-IN')}\n\n` +
     `📦 *Items:*\n${itemsList}\n\n` +
     `📍 *Ship to:* ${order.customer.address.city}, ${order.customer.address.state}\n\n` +
-    `🔗 Login to admin panel to update order status.`;
+    `🔗 Admin: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/#/admin/login`;
 
   return sendWhatsAppViaCallMeBot(phone, message, apiKey);
 };
 
+// ──────────────────────────────────────────────
+// CUSTOMER WHATSAPP NOTIFICATIONS
+// ──────────────────────────────────────────────
+// Uses Twilio WhatsApp API (sandbox free, production ~$0.005/msg)
+//
+// To enable:
+//   1. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM
+//   2. Twilio WhatsApp sender looks like: "whatsapp:+14155238886"
+//   3. Customers must opt in by sending "join <your-sandbox>" to the Twilio number
+// ──────────────────────────────────────────────
+
+function isTwilioWhatsAppConfigured() {
+  return !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_WHATSAPP_FROM);
+}
+
+async function sendCustomerWhatsApp(phone, message) {
+  if (!isTwilioWhatsAppConfigured()) {
+    console.log('ℹ️  Twilio WhatsApp not configured — skipping customer WhatsApp');
+    return false;
+  }
+
+  try {
+    const twilio = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+    await twilio.messages.create({
+      from: `whatsapp:${process.env.TWILIO_WHATSAPP_FROM}`,
+      to: `whatsapp:${phone}`,
+      body: message,
+    });
+    console.log(`📱 WhatsApp sent to customer ${phone}`);
+    return true;
+  } catch (err) {
+    console.error('❌ Twilio WhatsApp failed:', err.message);
+    return false;
+  }
+}
+
 /**
- * Send customer WhatsApp (using CallMeBot — customer must have activated it)
- * NOTE: For production customer WA at scale, use Meta Business API or Twilio.
- * The below is a placeholder for when/if the customer has their own CallMeBot key.
+ * Send order confirmation WhatsApp to customer
  */
-const sendCustomerWhatsApp = async (order) => {
-  // This is intentionally a no-op for now — CallMeBot requires each user
-  // to activate individually. Admin notifications above are fully functional.
-  // For customer notifications, the email is the primary channel (configured above).
-  console.log(`ℹ️  Customer WhatsApp skipped — using email as primary channel for ${order.customer.email}`);
-  return false;
+const sendCustomerOrderConfirmation = async (order) => {
+  const itemsList = order.items
+    .map((i) => `• ${i.name} ×${i.quantity} — ₹${(i.price * i.quantity).toLocaleString('en-IN')}`)
+    .join('\n');
+
+  const message =
+    `✨ *Thank you for your order, ${order.customer.name}!*\n\n` +
+    `📋 *Order:* ${order.orderNumber}\n` +
+    `📦 *Items:*\n${itemsList}\n\n` +
+    `💰 *Total:* ₹${order.total.toLocaleString('en-IN')}\n` +
+    `💳 *Payment:* ${order.status === 'confirmed' ? 'Confirmed ✅' : 'Pending'}\n\n` +
+    `📍 *Shipping to:* ${order.customer.address.city}, ${order.customer.address.state}\n` +
+    `📬 *Est. delivery:* ${order.estimatedDelivery || '14-21 Days'}\n\n` +
+    `We'll notify you when your order ships! 🚚\n` +
+    `— Mooncraft by Monika`;
+
+  return sendCustomerWhatsApp(order.customer.phone, message);
 };
 
-module.exports = { sendAdminWhatsAppAlert, sendCustomerWhatsApp };
+/**
+ * Send order status update WhatsApp to customer
+ */
+const sendCustomerStatusUpdate = async (order, newStatus) => {
+  const statusMessages = {
+    confirmed: '✅ Your order has been confirmed and is being prepared.',
+    processing: '🎨 Your order is now being crafted with love.',
+    shipped: `🚚 Your order has been shipped! Track it: ${order.tracking_number || 'N/A'} via ${order.courier_partner || 'courier partner'}.`,
+    delivered: '📬 Your order has been delivered! We hope you love it. Share a photo with us on Instagram @moon_craft_by_moniyal!',
+    cancelled: '❌ Your order has been cancelled. Please contact us for any questions.',
+  };
+
+  const line = statusMessages[newStatus] || `Your order status has been updated to: ${newStatus}`;
+
+  const message =
+    `👋 *Hi ${order.customer.name}!*\n\n` +
+    `📋 *Order:* ${order.orderNumber}\n\n` +
+    `${line}\n\n` +
+    `— Mooncraft by Monika`;
+
+  return sendCustomerWhatsApp(order.customer.phone, message);
+};
+
+module.exports = {
+  sendAdminWhatsAppAlert,
+  sendCustomerOrderConfirmation,
+  sendCustomerStatusUpdate,
+};

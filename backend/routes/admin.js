@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const bcrypt = require('bcryptjs');
 const supabase = require('../lib/supabase');
 const { requireAdmin } = require('../middleware/auth');
+const { shapeAdminOrder } = require('../utils/orderShaper');
 
 const router = express.Router();
 
@@ -202,13 +203,17 @@ router.get('/users/:id', requireAdmin, async (req, res) => {
 
     if (error || !user) return res.status(404).json({ success: false, message: 'User not found' });
 
+    // Fetch by user_id AND/OR customer_email to support both OTP and email users
+    const conditions = [`user_id.eq.${user.id}`];
+    if (user.email) conditions.push(`customer_email.eq.${user.email}`);
+
     const { data: orders } = await supabase
       .from('orders')
       .select('*, order_items(*)')
-      .eq('customer_email', user.email)
+      .or(conditions.join(','))
       .order('created_at', { ascending: false });
 
-    res.json({ success: true, data: { ...user, orders: orders || [] } });
+    res.json({ success: true, data: { ...user, orders: (orders || []).map(shapeAdminOrder) } });
   } catch {
     res.status(500).json({ success: false, message: 'Server error' });
   }
@@ -285,5 +290,145 @@ router.post(
     }
   }
 );
+
+/**
+ * GET /api/admin/admins/:id
+ * Fetch single admin (super admin only)
+ */
+router.get('/admins/:id', requireAdmin, async (req, res) => {
+  try {
+    if (req.admin.role !== 'super_admin') {
+      return res.status(403).json({ success: false, message: 'Super admin only' });
+    }
+    const { data: admin, error } = await supabase
+      .from('admins')
+      .select('id, name, email, role, permissions, is_active, last_login, created_at')
+      .eq('id', req.params.id)
+      .single();
+
+    if (error || !admin) return res.status(404).json({ success: false, message: 'Admin not found' });
+    res.json({ success: true, data: admin });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+/**
+ * PATCH /api/admin/admins/:id
+ * Update staff admin name / role / permissions (super admin only)
+ */
+router.patch(
+  '/admins/:id',
+  requireAdmin,
+  [body('name').optional().trim().notEmpty()],
+  async (req, res) => {
+    try {
+      if (req.admin.role !== 'super_admin') {
+        return res.status(403).json({ success: false, message: 'Super admin only' });
+      }
+      // Prevent super_admin from demoting themselves
+      if (req.params.id === req.admin.id) {
+        return res.status(400).json({ success: false, message: 'Cannot edit your own admin record' });
+      }
+
+      const allowedFields = ['name', 'role', 'permissions'];
+      const updateData = {};
+      for (const field of allowedFields) {
+        if (req.body[field] !== undefined) updateData[field] = req.body[field];
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        return res.status(400).json({ success: false, message: 'No updatable fields provided' });
+      }
+
+      const { data: admin, error } = await supabase
+        .from('admins')
+        .update(updateData)
+        .eq('id', req.params.id)
+        .select('id, name, email, role, permissions, is_active')
+        .single();
+
+      if (error || !admin) return res.status(404).json({ success: false, message: 'Admin not found' });
+      res.json({ success: true, data: admin, message: 'Admin updated' });
+    } catch (err) {
+      res.status(500).json({ success: false, message: 'Server error' });
+    }
+  }
+);
+
+/**
+ * PATCH /api/admin/admins/:id/toggle
+ * Activate / deactivate a staff admin (super admin only)
+ */
+router.patch('/admins/:id/toggle', requireAdmin, async (req, res) => {
+  try {
+    if (req.admin.role !== 'super_admin') {
+      return res.status(403).json({ success: false, message: 'Super admin only' });
+    }
+    if (req.params.id === req.admin.id) {
+      return res.status(400).json({ success: false, message: 'Cannot deactivate yourself' });
+    }
+
+    const { data: current } = await supabase
+      .from('admins')
+      .select('is_active')
+      .eq('id', req.params.id)
+      .single();
+
+    if (!current) return res.status(404).json({ success: false, message: 'Admin not found' });
+
+    const { data: admin, error } = await supabase
+      .from('admins')
+      .update({ is_active: !current.is_active })
+      .eq('id', req.params.id)
+      .select('id, name, email, role, is_active')
+      .single();
+
+    if (error) throw error;
+    res.json({
+      success: true,
+      data: admin,
+      message: `Admin ${admin.is_active ? 'activated' : 'deactivated'}`,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// ──────────────────────────────────────────────
+// CUSTOMER TOGGLE (activate / deactivate)
+// ──────────────────────────────────────────────
+
+/**
+ * PATCH /api/admin/users/:id/toggle
+ * Activate or deactivate a customer account
+ */
+router.patch('/users/:id/toggle', requireAdmin, async (req, res) => {
+  try {
+    const { data: current } = await supabase
+      .from('users')
+      .select('is_active')
+      .eq('id', req.params.id)
+      .single();
+
+    if (!current) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const { data: user, error } = await supabase
+      .from('users')
+      .update({ is_active: !current.is_active })
+      .eq('id', req.params.id)
+      .select('id, name, email, is_active')
+      .single();
+
+    if (error) throw error;
+    res.json({
+      success: true,
+      data: user,
+      message: `User ${user.is_active ? 'activated' : 'deactivated'}`,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
 
 module.exports = router;

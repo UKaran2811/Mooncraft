@@ -145,7 +145,8 @@ const sendOrderConfirmationEmail = async (order) => {
  * Send admin notification email when new order is placed
  */
 const sendAdminOrderAlert = async (order) => {
-  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD || !process.env.ADMIN_EMAIL) {
+  const adminRecipient = process.env.ADMIN_EMAIL_RECIPIENT || process.env.ADMIN_EMAIL;
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD || !adminRecipient) {
     return false;
   }
   const transporter = createTransporter();
@@ -154,7 +155,7 @@ const sendAdminOrderAlert = async (order) => {
   try {
     await transporter.sendMail({
       from: `"Mooncraft Orders" <${process.env.GMAIL_USER}>`,
-      to: process.env.ADMIN_EMAIL,
+      to: adminRecipient,
       subject: `🛍️ New Order ${order.orderNumber} — ₹${order.total.toLocaleString('en-IN')}`,
       text: `New order received!\n\nOrder: ${order.orderNumber}\nCustomer: ${order.customer.name} (${order.customer.email})\nPhone: ${order.customer.phone}\nTotal: ₹${order.total.toLocaleString('en-IN')}\n\nItems:\n${itemsList}\n\nShip to:\n${order.customer.address.line1}, ${order.customer.address.city}, ${order.customer.address.state} ${order.customer.address.zip}`,
     });
@@ -165,4 +166,118 @@ const sendAdminOrderAlert = async (order) => {
   }
 };
 
-module.exports = { sendOrderConfirmationEmail, sendAdminOrderAlert };
+/**
+ * Send password reset email to customer
+ */
+const sendPasswordResetEmail = async (email, resetLink, name = '') => {
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    console.warn('⚠️  Email not configured. Skipping password reset email.');
+    return false;
+  }
+
+  const transporter = createTransporter();
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Reset Your Password — Mooncraft</title>
+</head>
+<body style="margin:0;padding:0;background:#f8f7f5;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+  <div style="max-width:600px;margin:40px auto;background:#ffffff;border-radius:4px;overflow:hidden;box-shadow:0 1px 8px rgba(0,0,0,0.06);">
+    <div style="background:#111111;padding:40px 40px 32px;text-align:center;">
+      <div style="letter-spacing:0.3em;font-size:11px;color:#888;text-transform:uppercase;margin-bottom:8px;">Handcrafted Resin Art</div>
+      <h1 style="color:#ffffff;font-size:24px;font-weight:300;letter-spacing:0.15em;text-transform:uppercase;margin:0;">MOONCRAFT</h1>
+    </div>
+    <div style="padding:40px;text-align:center;">
+      <h2 style="margin:0 0 12px;font-size:18px;font-weight:600;color:#111;letter-spacing:0.05em;">Reset Your Password</h2>
+      <p style="color:#666;font-size:13px;line-height:1.6;margin:0 0 32px;">
+        ${name ? `Hi ${name}, we` : 'We'} received a request to reset the password for your Mooncraft account.
+        Click the button below to set a new password. This link expires in <strong>1 hour</strong>.
+      </p>
+      <a href="${resetLink}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:14px 36px;font-size:12px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;border-radius:2px;">
+        Reset Password
+      </a>
+      <p style="color:#999;font-size:11px;margin:28px 0 0;line-height:1.5;">
+        If you didn't request this, you can safely ignore this email.<br/>
+        Your password will remain unchanged.
+      </p>
+    </div>
+    <div style="background:#111;padding:24px 40px;text-align:center;">
+      <p style="color:#555;font-size:10px;text-transform:uppercase;letter-spacing:0.15em;margin:0;">
+        Mooncraft · Bespoke Resin Art Studio · India
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  try {
+    await transporter.sendMail({
+      from: `"Mooncraft Studio" <${process.env.GMAIL_USER}>`,
+      to: email,
+      subject: `Reset your Mooncraft password`,
+      html,
+    });
+    console.log(`📧 Password reset email sent to ${email}`);
+    return true;
+  } catch (err) {
+    console.error('❌ Password reset email failed:', err.message);
+    return false;
+  }
+};
+
+/**
+ * Send OTP code to a customer via email (fallback for SMS when phone
+ * number is not reachable on SMS gateways, or for users who prefer email).
+ */
+const sendOtpEmail = async (email, code, phone) => {
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    console.warn('⚠️  Email not configured. Skipping OTP email.');
+    return false;
+  }
+  const transporter = createTransporter();
+  const html = `
+<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#f8f7f5;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+  <div style="max-width:480px;margin:40px auto;background:#ffffff;border-radius:4px;overflow:hidden;box-shadow:0 1px 8px rgba(0,0,0,0.06);">
+    <div style="background:#111111;padding:32px 40px 24px;text-align:center;">
+      <div style="letter-spacing:0.3em;font-size:11px;color:#888;text-transform:uppercase;margin-bottom:8px;">Handcrafted Resin Art</div>
+      <h1 style="color:#ffffff;font-size:22px;font-weight:300;letter-spacing:0.15em;text-transform:uppercase;margin:0;">MOONCRAFT</h1>
+    </div>
+    <div style="padding:40px;text-align:center;">
+      <h2 style="margin:0 0 8px;font-size:16px;font-weight:600;color:#111;letter-spacing:0.05em;text-transform:uppercase;">Your Login Code</h2>
+      <p style="color:#666;font-size:13px;line-height:1.6;margin:0 0 24px;">
+        Use this 6-digit code to sign in to your Mooncraft account${phone ? ` (linked to ${phone})` : ''}.
+        It expires in <strong>5 minutes</strong>.
+      </p>
+      <div style="background:#f8f7f5;border:1px solid #eeebe6;border-radius:4px;padding:20px;letter-spacing:0.5em;font-size:28px;font-weight:700;color:#111;font-family:monospace;">
+        ${code}
+      </div>
+      <p style="color:#999;font-size:11px;margin:24px 0 0;line-height:1.5;">
+        If you didn't request this, you can safely ignore this email.
+      </p>
+    </div>
+    <div style="background:#111;padding:20px 40px;text-align:center;">
+      <p style="color:#555;font-size:10px;text-transform:uppercase;letter-spacing:0.15em;margin:0;">Mooncraft · Bespoke Resin Art Studio</p>
+    </div>
+  </div>
+</body></html>`;
+  try {
+    await transporter.sendMail({
+      from: `"Mooncraft Studio" <${process.env.GMAIL_USER}>`,
+      to: email,
+      subject: `${code} — Your Mooncraft Login Code`,
+      html,
+    });
+    console.log(`📧 OTP email sent to ${email}`);
+    return true;
+  } catch (err) {
+    console.error('❌ OTP email failed:', err.message);
+    return false;
+  }
+};
+
+module.exports = { sendOrderConfirmationEmail, sendAdminOrderAlert, sendPasswordResetEmail, sendOtpEmail };

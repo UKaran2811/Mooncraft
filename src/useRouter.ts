@@ -28,6 +28,12 @@ export const useRouter = create<RouterState>((set) => ({
       window.location.hash = '#/admin';
     } else if (newRoute.type === 'admin-login') {
       window.location.hash = '#/admin/login';
+    } else if (newRoute.type === 'reset-password') {
+      window.location.hash = newRoute.token
+        ? `#/reset-password?token=${encodeURIComponent(newRoute.token)}`
+        : '#/reset-password';
+    } else if (newRoute.type === 'my-orders') {
+      window.location.hash = '#/my-orders';
     }
     return {
       history: [...state.history, state.route],
@@ -58,8 +64,15 @@ export const initHashRouting = (navigateTo: (route: PageRoute) => void) => {
       const parts = hash.split('/');
       const category = parts[2] ? decodeURIComponent(parts[2]) : undefined;
       navigateTo({ type: 'shop', filterCategory: category });
-    } else if (hash === '#/admin/login' || hash === '#/admin') {
-      // Admin routes are handled without loading the full app nav/footer
+    } else if (hash.startsWith('#/reset-password')) {
+      const params = new URLSearchParams(hash.split('?')[1] || '');
+      const token = params.get('token') || undefined;
+      navigateTo({ type: 'reset-password', token });
+    } else if (hash === '#/my-orders') {
+      navigateTo({ type: 'my-orders' });
+    } else if (hash === '#/admin') {
+      navigateTo({ type: 'admin' });
+    } else if (hash === '#/admin/login') {
       navigateTo({ type: 'admin-login' });
     }
   };

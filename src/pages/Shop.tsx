@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from 'react';
-import { products } from '../data';
+import { useState, useMemo } from 'react';
+import { useProducts } from '../hooks/useProducts';
 import ProductCard from '../components/ProductCard';
 import { useRouter } from '../useRouter';
 import { SlidersHorizontal, ChevronRight, RefreshCw, Sparkles } from 'lucide-react';
@@ -9,41 +9,26 @@ export default function Shop() {
   
   // Extract pre-set category filter if navigated to a specific category
   const initialCategory = route.type === 'shop' && route.filterCategory ? route.filterCategory : 'All';
-  const [activeCategory, setActiveCategory] = useState<string>('All');
+  const [activeCategory, setActiveCategory] = useState<string>(initialCategory);
   const [priceRange, setPriceRange] = useState<number>(3000);
   const [sortBy, setSortBy] = useState<'featured' | 'lowToHigh' | 'highToLow'>('featured');
 
-  // Keep state synced if route changes
-  useEffect(() => {
-    if (route.type === 'shop') {
-      setActiveCategory(route.filterCategory || 'All');
-    }
-  }, [route]);
+  // Map UI sort labels to API sort params
+  const apiSort = sortBy === 'lowToHigh' ? 'price_asc' : sortBy === 'highToLow' ? 'price_desc' : 'newest';
+
+  // Fetch from backend (falls back to static data if backend is offline)
+  const { products: allProducts, loading } = useProducts({
+    category: activeCategory !== 'All' ? activeCategory : undefined,
+    sort: apiSort as 'newest' | 'price_asc' | 'price_desc',
+  });
 
   // Categories list
   const categories = ['All', 'Resin Art', 'Wedding Favors', 'Festive Gifting', 'Accessories'];
 
-  // Filter and sort products
+  // Client-side price filter (backend doesn't have a max-price filter param)
   const processedProducts = useMemo(() => {
-    let result = [...products];
-
-    // 1. Category Filter
-    if (activeCategory !== 'All') {
-      result = result.filter((p) => p.category === activeCategory);
-    }
-
-    // 2. Price Filter
-    result = result.filter((p) => p.price <= priceRange);
-
-    // 3. Sorting
-    if (sortBy === 'lowToHigh') {
-      result.sort((a, b) => a.price - b.price);
-    } else if (sortBy === 'highToLow') {
-      result.sort((a, b) => b.price - a.price);
-    }
-
-    return result;
-  }, [activeCategory, priceRange, sortBy]);
+    return allProducts.filter((p) => p.price <= priceRange);
+  }, [allProducts, priceRange]);
 
   const resetFilters = () => {
     setActiveCategory('All');
@@ -172,11 +157,24 @@ export default function Shop() {
           {/* Right Column: Grid of matching products */}
           <main className="flex-1 flex flex-col gap-8">
             <div className="flex items-center justify-between text-neutral-400 font-sans text-[11px] uppercase tracking-wider font-medium">
-              <span>Displaying {processedProducts.length} unique treasures</span>
+              <span>
+                {loading ? 'Loading collection...' : `Displaying ${processedProducts.length} unique treasures`}
+              </span>
               <span>Exclusive handcrafts</span>
             </div>
 
-            {processedProducts.length === 0 ? (
+            {/* Loading skeleton */}
+            {loading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-10 sm:gap-x-8 sm:gap-y-12">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="flex flex-col gap-3 animate-pulse">
+                    <div className="aspect-[4/5] bg-neutral-100 rounded" />
+                    <div className="h-3 bg-neutral-100 rounded w-3/4" />
+                    <div className="h-3 bg-neutral-100 rounded w-1/3" />
+                  </div>
+                ))}
+              </div>
+            ) : processedProducts.length === 0 ? (
               <div className="py-24 border border-dashed border-neutral-200 rounded-sm text-center flex flex-col gap-3 items-center">
                 <p className="text-xs uppercase tracking-widest font-semibold text-black">No matching items found</p>
                 <p className="text-[11px] text-neutral-400 max-w-xs leading-relaxed font-sans">

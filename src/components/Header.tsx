@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Search, User, ShoppingBag, Menu, X, ArrowLeft } from 'lucide-react';
 import { useCartStore } from '../useCartStore';
 import { useRouter } from '../useRouter';
+import { useAuthStore } from '../useAuthStore';
 import { products } from '../data';
 
 export default function Header() {
@@ -11,6 +12,7 @@ export default function Header() {
   
   const { items, openCart, searchOpen, setSearchOpen, searchQuery, setSearchQuery } = useCartStore();
   const { navigateTo } = useRouter();
+  const user = useAuthStore((s) => s.user);
 
   // Scroll handler for transparent-to-solid transition
   useEffect(() => {
@@ -174,9 +176,9 @@ export default function Header() {
               
               <button 
                 id="profile-btn"
-                onClick={() => alert("Welcome to Mooncraft. Client account portals are active. Please use Checkout for guest checkout flows.")}
+                onClick={() => navigateTo({ type: 'my-orders' })}
                 className="p-1 text-black hover:text-neutral-500 transition-colors cursor-pointer hidden sm:block"
-                aria-label="Account Settings"
+                aria-label={user ? 'My Orders' : 'Account'}
               >
                 <User className="w-4 h-4 sm:w-[18px] sm:h-[18px] stroke-[1.5]" />
               </button>

@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { Sparkles, Calendar, Heart, ShieldCheck, ArrowRight, Gift, Star, Palette, MapPin } from 'lucide-react';
-import { products } from '../data';
+import { useProducts } from '../hooks/useProducts';
 import ProductCard from '../components/ProductCard';
 import CategoryMarquee from '../components/CategoryMarquee';
 import { useRouter } from '../useRouter';
@@ -10,11 +10,14 @@ export default function Home() {
   const { navigateTo } = useRouter();
   const [selectedCategory, setSelectedCategory] = useState<'All' | 'Resin Art' | 'Wedding Favors' | 'Festive Gifting' | 'Accessories'>('All');
 
+  // Fetch from backend (falls back to static data if backend is offline)
+  const { products } = useProducts();
+
   // Filter products by selected category
   const filteredProducts = useMemo(() => {
     if (selectedCategory === 'All') return products;
     return products.filter((p) => p.category === selectedCategory);
-  }, [selectedCategory]);
+  }, [selectedCategory, products]);
 
   return (
     <div className="w-full bg-white text-black pt-[116px]">
