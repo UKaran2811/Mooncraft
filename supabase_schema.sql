@@ -105,6 +105,8 @@ CREATE TABLE IF NOT EXISTS orders (
   estimated_delivery    TEXT DEFAULT '14 - 21 Days',
   tracking_number       TEXT,
   courier_partner       TEXT,
+  shipment_id           TEXT,
+  awb_code              TEXT,
 
   -- Notes
   notes                 TEXT,
@@ -254,3 +256,9 @@ CREATE POLICY "service_role_all" ON password_resets
 -- (password is bcrypt hashed, can't do it in SQL easily)
 -- Run: node backend/seeder.js  after setup
 -- ─────────────────────────────────────────
+
+-- ─────────────────────────────────────────
+-- MIGRATION: Shiprocket columns (run once on existing DBs)
+-- ─────────────────────────────────────────
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipment_id TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS awb_code TEXT;

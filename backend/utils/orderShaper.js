@@ -78,4 +78,40 @@ function shapeAdminOrder(row) {
   };
 }
 
-module.exports = { shapeOrder, shapeAdminOrder, camelizeKeys };
+/**
+ * Shape an order (raw DB row) for the notification services
+ * (email + WhatsApp). Preserves snake_case tracking fields which
+ * whatsappService reads directly.
+ */
+function shapeForNotifications(row) {
+  const items = row.items || row.order_items || [];
+  return {
+    orderNumber: row.order_number,
+    status: row.status,
+    estimatedDelivery: row.estimated_delivery || '14 - 21 Days',
+    customer: {
+      name: row.customer_name,
+      email: row.customer_email,
+      phone: row.customer_phone,
+      address: {
+        line1: row.address_line1,
+        city: row.address_city,
+        state: row.address_state,
+        zip: row.address_zip,
+      },
+    },
+    items: items.map((i) => ({
+      name: i.name,
+      price: Number(i.price),
+      quantity: i.quantity,
+      selectedOption: i.selected_option || i.selectedOption,
+    })),
+    subtotal: Number(row.subtotal),
+    shipping: Number(row.shipping),
+    total: Number(row.total),
+    tracking_number: row.tracking_number || null,
+    courier_partner: row.courier_partner || null,
+  };
+}
+
+module.exports = { shapeOrder, shapeAdminOrder, camelizeKeys, shapeForNotifications };

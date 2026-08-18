@@ -141,6 +141,16 @@ export const ordersAPI = {
 
   cancel: (id: string) => apiFetch(`/orders/${id}`, { method: 'DELETE', isAdmin: true }),
 
+  shipViaShiprocket: (id: string, schedulePickup = false) =>
+    apiFetch(`/orders/${id}/ship`, {
+      method: 'POST',
+      body: JSON.stringify({ schedulePickupNow: schedulePickup }),
+      isAdmin: true,
+    }),
+
+  getShiprocketTracking: (id: string) =>
+    apiFetch(`/orders/${id}/tracking`, { isAdmin: true }),
+
   // Customer's own orders
   getMy: () => apiFetch('/orders/my'),
 
@@ -152,8 +162,21 @@ export const ordersAPI = {
   verifyPayment: (data: Record<string, string>) =>
     apiFetch('/orders/verify-payment', { method: 'POST', body: JSON.stringify(data) }),
 
+  // DEV ONLY: simulate a successful payment (never works in production)
+  simulatePayment: (orderId: string) =>
+    apiFetch(`/orders/${orderId}/simulate-payment`, { method: 'POST' }),
+
   track: (orderNumber: string, email: string) =>
     apiFetch(`/orders/track/${orderNumber}?email=${encodeURIComponent(email)}`),
+};
+
+// ── Shipping (Shiprocket) ───────────────────
+export const shippingAPI = {
+  checkPincode: (pincode: string, weightKg = 0.5, cod = false) =>
+    apiFetch('/shipping/check-pincode', {
+      method: 'POST',
+      body: JSON.stringify({ pincode, weightKg, cod }),
+    }),
 };
 
 // ── Upload ──────────────────────────────────

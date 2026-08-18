@@ -6,7 +6,8 @@ const supabase = require('../lib/supabase');
 const { requireAdmin, requireAuth, optionalAuth } = require('../middleware/auth');
 const { sendOrderConfirmationEmail, sendAdminOrderAlert } = require('../services/emailService');
 const { sendAdminWhatsAppAlert, sendCustomerOrderConfirmation, sendCustomerStatusUpdate } = require('../services/whatsappService');
-const { shapeOrder, shapeAdminOrder } = require('../utils/orderShaper');
+const { shapeOrder, shapeAdminOrder, shapeForNotifications } = require('../utils/orderShaper');
+const { isConfigured: shiprocketConfigured, createShipment, schedulePickup, trackShipment } = require('../services/shiprocketService');
 
 const router = express.Router();
 
@@ -406,6 +407,107 @@ router.patch(
 );
 
 /**
+ * POST /api/orders/:id/ship
+ * Create a Shiprocket shipment for an order (admin only).
+ * Updates order with shipment_id, awb_code, courier, status → shipped.
+ */
+router.post('/:id/ship', requireAdmin, async (req, res) => {
+  if (!shiprocketConfigured()) {
+    return res.status(400).json({
+      success: false,
+      message: 'Shiprocket not configured. Set SHIPROCKET_EMAIL and SHIPROCKET_PASSWORD.',
+    });
+  }
+
+  const { schedulePickupNow = false } = req.body;
+  try {
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('*, order_items(*)')
+      .eq('id', req.params.id)
+      .single();
+
+    if (error || !order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+    const shaped = shapeAdminOrder(order);
+    const shipment = await createShipment(shaped);
+
+    const update = {
+      status: 'shipped',
+      shipment_id: shipment.shipmentId || null,
+      awb_code: shipment.awbCode || null,
+      tracking_number: shipment.awbCode || order.tracking_number || null,
+      courier_partner: shipment.courierName || order.courier_partner || null,
+    };
+
+    const { data: updated, error: updErr } = await supabase
+      .from('orders')
+      .update(update)
+      .eq('id', order.id)
+      .select()
+      .single();
+    if (updErr) throw updErr;
+
+    let pickup = null;
+    if (schedulePickupNow && shipment.shipmentId) {
+      try {
+        pickup = await schedulePickup(shipment.shipmentId);
+      } catch (e) {
+        console.warn('Shiprocket pickup scheduling failed:', e.message);
+      }
+    }
+
+    // Notify customer that order is shipped (with tracking info)
+    sendCustomerStatusUpdate(shapeForNotifications(updated), 'shipped').catch(() => {});
+
+    res.json({
+      success: true,
+      data: shapeAdminOrder(updated),
+      shipment: {
+        shipmentId: shipment.shipmentId,
+        awbCode: shipment.awbCode,
+        courierName: shipment.courierName,
+      },
+      pickup,
+      message: shipment.awbCode
+        ? `Shipment created — AWB ${shipment.awbCode}`
+        : 'Shipment created, but AWB generation is pending',
+    });
+  } catch (err) {
+    console.error('Shiprocket ship error:', err.message);
+    res.status(500).json({ success: false, message: `Shiprocket error: ${err.message}` });
+  }
+});
+
+/**
+ * GET /api/orders/:id/tracking
+ * Live tracking from Shiprocket (admin only).
+ */
+router.get('/:id/tracking', requireAdmin, async (req, res) => {
+  try {
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('shipment_id')
+      .eq('id', req.params.id)
+      .single();
+
+    if (error || !order) return res.status(404).json({ success: false, message: 'Order not found' });
+    if (!order.shipment_id) {
+      return res.status(400).json({ success: false, message: 'No Shiprocket shipment for this order yet' });
+    }
+    if (!shiprocketConfigured()) {
+      return res.status(400).json({ success: false, message: 'Shiprocket not configured' });
+    }
+
+    const tracking = await trackShipment(order.shipment_id);
+    res.json({ success: true, data: tracking });
+  } catch (err) {
+    console.error('Shiprocket tracking error:', err.message);
+    res.status(500).json({ success: false, message: `Tracking error: ${err.message}` });
+  }
+});
+
+/**
  * DELETE /api/orders/:id
  * Cancel order (admin only)
  */
@@ -422,6 +524,58 @@ router.delete('/:id', requireAdmin, async (req, res) => {
     res.json({ success: true, message: 'Order cancelled' });
   } catch {
     res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// ──────────────────────────────────────────────
+// DEV ONLY: Simulate a successful Razorpay payment
+// Generates a valid HMAC signature from the real KEY_SECRET so you can
+// test the full order → confirm → email flow without the Razorpay test UI.
+// ⛔ BLOCKED in production — never runs when NODE_ENV=production
+// ──────────────────────────────────────────────
+
+router.post('/:id/simulate-payment', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ success: false, message: 'Not found' });
+  }
+
+  try {
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('id, order_number, razorpay_order_id, payment_status')
+      .eq('id', req.params.id)
+      .single();
+
+    if (error || !order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+    if (order.payment_status === 'paid') {
+      return res.status(400).json({ success: false, message: 'Order already paid' });
+    }
+    if (!order.razorpay_order_id) {
+      return res.status(400).json({ success: false, message: 'No Razorpay order ID on this order — was it created with paymentMethod=razorpay?' });
+    }
+
+    // Generate a fake but structurally valid payment ID
+    const fakePaymentId = `pay_TEST${Date.now()}`;
+    const razorpayOrderId = order.razorpay_order_id;
+
+    // Sign with the real KEY_SECRET — this makes verify-payment accept it
+    const signature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(`${razorpayOrderId}|${fakePaymentId}`)
+      .digest('hex');
+
+    res.json({
+      success: true,
+      razorpay_order_id: razorpayOrderId,
+      razorpay_payment_id: fakePaymentId,
+      razorpay_signature: signature,
+      orderNumber: order.order_number,
+    });
+  } catch (err) {
+    console.error('Simulate payment error:', err);
+    res.status(500).json({ success: false, message: 'Simulation failed' });
   }
 });
 
@@ -444,3 +598,4 @@ async function sendNotifications(shaped, orderId) {
 }
 
 module.exports = router;
+

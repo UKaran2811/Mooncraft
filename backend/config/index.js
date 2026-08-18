@@ -18,12 +18,13 @@ const REQUIRED_IN_PRODUCTION = [
 
 const RECOMMENDED = [
   'JWT_ADMIN_SECRET',
-  'GMAIL_USER',
-  'GMAIL_APP_PASSWORD',
+  'RESEND_API_KEY',
   'RAZORPAY_KEY_ID',
   'RAZORPAY_KEY_SECRET',
   'CALLMEBOT_PHONE',
   'CALLMEBOT_API_KEY',
+  'SHIPROCKET_EMAIL',
+  'SHIPROCKET_PASSWORD',
 ];
 
 /**
@@ -79,8 +80,8 @@ const config = {
   },
 
   email: {
-    gmailUser: process.env.GMAIL_USER || '',
-    gmailPass: process.env.GMAIL_APP_PASSWORD || '',
+    resendKey: process.env.RESEND_API_KEY || '',
+    fromEmail: process.env.RESEND_FROM_EMAIL || '',
     adminRecipient: process.env.ADMIN_EMAIL_RECIPIENT || process.env.ADMIN_EMAIL || '',
   },
 
@@ -93,6 +94,14 @@ const config = {
     keyId: process.env.RAZORPAY_KEY_ID || '',
     keySecret: process.env.RAZORPAY_KEY_SECRET || '',
     webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || '',
+  },
+
+  shiprocket: {
+    email: process.env.SHIPROCKET_EMAIL || '',
+    password: process.env.SHIPROCKET_PASSWORD || '',
+    pickupLocation: process.env.SHIPROCKET_PICKUP_LOCATION || 'Home',
+    storePincode: process.env.SHIPROCKET_STORE_PINCODE || '',
+    webhookSecret: process.env.SHIPROCKET_WEBHOOK_SECRET || '',
   },
 
   // Business rules

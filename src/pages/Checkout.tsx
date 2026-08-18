@@ -8,7 +8,7 @@ import {
   ShieldCheck, Lock, ChevronRight, CheckCircle2, ShoppingBag,
   CreditCard, Smartphone, Banknote, Phone, Mail, User, Edit3,
 } from 'lucide-react';
-import { ordersAPI } from '../services/api';
+import { ordersAPI, shippingAPI } from '../services/api';
 import OtpLoginModal from '../components/OtpLoginModal';
 
 type PaymentMethod = 'razorpay' | 'cod';
@@ -45,8 +45,15 @@ export default function Checkout() {
   const [isOrdering, setIsOrdering] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [orderNumber, setOrderNumber] = useState('');
+  const [orderId, setOrderId] = useState('');   // used by simulate-payment
   const [orderPaymentMethod, setOrderPaymentMethod] = useState<PaymentMethod>('razorpay');
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Detect test mode — KEY_ID starts with rzp_test_
+  const isTestMode = (import.meta.env.VITE_RAZORPAY_KEY_ID || '').startsWith('rzp_test_');
+
+  // Pincode serviceability state
+  const [pincodeStatus, setPincodeStatus] = useState<{ checking: boolean; serviceable?: boolean; couriers?: { name: string; estimatedDays?: string }[]; message?: string }>({});
 
   // Hydrate auth on mount
   useEffect(() => { hydrate(); }, [hydrate]);
@@ -74,6 +81,25 @@ export default function Checkout() {
   const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const shipping = subtotal > 1500 ? 0 : 250;
   const total = subtotal + shipping;
+
+  const checkPincode = async () => {
+    if (!/^\d{6}$/.test(zipCode)) {
+      setPincodeStatus({ checking: false, message: 'Enter a valid 6-digit pincode to check delivery.' });
+      return;
+    }
+    setPincodeStatus({ checking: true });
+    try {
+      const res = await shippingAPI.checkPincode(zipCode);
+      setPincodeStatus({
+        checking: false,
+        serviceable: res.serviceable,
+        couriers: res.availableCouriers || [],
+        message: res.message,
+      });
+    } catch (err: any) {
+      setPincodeStatus({ checking: false, message: err?.message || 'Delivery check failed.' });
+    }
+  };
 
   const handleAuthenticated = () => {
     setShowAuthModal(false);
@@ -169,6 +195,7 @@ export default function Checkout() {
 
       // Razorpay: open the modal — success callback closes the loop
       if (paymentMethod === 'razorpay' && res.razorpayOrderId && res.razorpayKeyId) {
+        setOrderId(res.orderId);   // save so simulate button can use it
         openRazorpay({
           razorpayOrderId: res.razorpayOrderId,
           razorpayKeyId: res.razorpayKeyId,
@@ -446,6 +473,25 @@ export default function Checkout() {
                   className="w-full bg-transparent border-b border-neutral-300 py-2.5 text-xs text-black placeholder-neutral-400 focus:outline-hidden focus:border-black font-sans tracking-wide transition-colors"
                 />
               </div>
+              <div className="flex items-center gap-2 mt-2">
+                <button type="button" onClick={checkPincode} disabled={pincodeStatus.checking} className="text-[10px] uppercase tracking-widest font-bold bg-black text-white px-3 py-2 rounded-xs hover:bg-neutral-800 disabled:bg-neutral-400 transition-colors cursor-pointer">
+                  {pincodeStatus.checking ? 'Checking...' : 'Check Delivery'}
+                </button>
+                {pincodeStatus.message && !pincodeStatus.checking && (
+                  <span className={`text-[10px] font-semibold ${pincodeStatus.serviceable === false ? 'text-red-600' : 'text-emerald-700'}`}>
+                    {pincodeStatus.message}
+                  </span>
+                )}
+              </div>
+              {pincodeStatus.couriers && pincodeStatus.couriers.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {pincodeStatus.couriers.slice(0, 4).map((c, i) => (
+                    <span key={i} className="text-[9px] font-semibold uppercase tracking-wider bg-neutral-100 border border-neutral-200 text-neutral-600 px-2 py-1 rounded-xs">
+                      {c.name}{c.estimatedDays ? ` · ${c.estimatedDays}d` : ''}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* 3. Payment method */}
@@ -486,6 +532,55 @@ export default function Checkout() {
             {errorMsg && (
               <div className="w-full bg-red-50 border border-red-200 rounded p-3 text-xs text-red-600 font-sans">
                 ⚠️ {errorMsg}
+              </div>
+            )}
+
+            {/* TEST MODE banner + simulate button */}
+            {isTestMode && paymentMethod === 'razorpay' && (
+              <div className="w-full border border-amber-300 bg-amber-50 rounded p-3 flex flex-col gap-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-amber-700 flex items-center gap-1.5">
+                  🧪 Razorpay Test Mode Active
+                </p>
+                <p className="text-[10px] text-amber-600 leading-relaxed">
+                  If the Razorpay modal fails, use the button below to simulate a successful payment and test the full order → email → confirmation flow.
+                </p>
+                {orderId && (
+                  <button
+                    id="simulate-payment-btn"
+                    type="button"
+                    disabled={isOrdering}
+                    onClick={async () => {
+                      setIsOrdering(true);
+                      setErrorMsg('');
+                      try {
+                        const sim = await ordersAPI.simulatePayment(orderId);
+                        await ordersAPI.verifyPayment({
+                          razorpay_order_id: sim.razorpay_order_id,
+                          razorpay_payment_id: sim.razorpay_payment_id,
+                          razorpay_signature: sim.razorpay_signature,
+                          orderNumber: sim.orderNumber,
+                        });
+                        setOrderNumber(sim.orderNumber);
+                        setOrderPaymentMethod('razorpay');
+                        setOrderSuccess(true);
+                      } catch (err) {
+                        setErrorMsg(err instanceof Error ? err.message : 'Simulation failed');
+                      } finally {
+                        setIsOrdering(false);
+                      }
+                    }}
+                    className="w-full bg-amber-500 hover:bg-amber-600 text-white py-2.5 text-[10px] font-bold tracking-widest uppercase rounded-sm flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50"
+                  >
+                    {isOrdering ? (
+                      <><div className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Simulating…</>
+                    ) : '🧪 Simulate Payment Success'}
+                  </button>
+                )}
+                {!orderId && (
+                  <p className="text-[10px] text-amber-500 italic">
+                    First click "Pay ₹{total.toLocaleString('en-IN')}" to create the order, then use this button if the modal fails.
+                  </p>
+                )}
               </div>
             )}
 

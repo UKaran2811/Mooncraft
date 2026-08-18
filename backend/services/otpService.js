@@ -8,10 +8,10 @@
  *   2. POST /api/auth/verify-otp  { phone, code } → validates, marks used, returns JWT pair
  *
  * Delivery channels (tried in order, first one configured wins):
- *   1. Twilio SMS     (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM)
- *   2. MSG91 SMS      (MSG91_AUTH_KEY, MSG91_SENDER_ID, MSG91_ROUTE)
- *   3. Fast2SMS       (FAST2SMS_API_KEY)
- *   4. Gmail email    (GMAIL_USER, GMAIL_APP_PASSWORD) — sends OTP to user's email
+ *   1. Twilio SMS     (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM) — primary
+ *   2. Fast2SMS       (FAST2SMS_API_KEY) — fallback for India (Quick SMS route)
+ *   3. MSG91 SMS      (MSG91_AUTH_KEY, MSG91_SENDER_ID, MSG91_ROUTE)
+ *   4. Resend email   (RESEND_API_KEY) — sends OTP to user's email
  *   5. Console log    (always — for local dev / testing)
  *
  * Security:
@@ -30,6 +30,14 @@ const OTP_LENGTH = 6;
 const OTP_TTL_MS = 5 * 60 * 1000;          // 5 minutes
 const RESEND_COOLDOWN_MS = 60 * 1000;      // 60 seconds
 const MAX_ATTEMPTS = 5;
+
+/**
+ * A provider is "configured" only if its key is set AND it's not a FILL_IN_ placeholder.
+ * Prevents the app from trying Twilio/MSG91/etc. with dummy placeholder values.
+ */
+function isConfigured(...vals) {
+  return vals.every((v) => v && !String(v).startsWith('FILL_IN'));
+}
 
 /**
  * Normalize a phone number to E.164-ish format.
@@ -62,11 +70,11 @@ function generateCode() {
 
 /**
  * Send the OTP via the first configured channel.
- * Returns { delivered: bool, channel: 'twilio'|'msg91'|'fast2sms'|'email'|'console' }.
+ * Returns { delivered: bool, channel: 'twilio'|'fast2sms'|'msg91'|'email'|'console' }.
  */
 async function deliverOtp(phone, code) {
-  // 1. Twilio
-  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM) {
+  // 1. Twilio (primary for now)
+  if (isConfigured(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN, process.env.TWILIO_FROM)) {
     try {
       const twilio = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
       await twilio.messages.create({
@@ -81,8 +89,56 @@ async function deliverOtp(phone, code) {
     }
   }
 
-  // 2. MSG91
-  if (process.env.MSG91_AUTH_KEY && process.env.MSG91_SENDER_ID) {
+  // 2. Fast2SMS (India — fallback)
+  if (isConfigured(process.env.FAST2SMS_API_KEY)) {
+    try {
+      const https = require('https');
+      const postData = new URLSearchParams({
+        message: `Your Mooncraft OTP is ${code}. Valid 5 min.`,
+        language: 'english',
+        route: 'q',
+        numbers: phone.replace(/^\+91/, ''),
+      }).toString();
+
+      const response = await new Promise((resolve, reject) => {
+        const req = https.request(
+          {
+            hostname: 'www.fast2sms.com',
+            path: '/dev/bulkV2',
+            method: 'POST',
+            headers: {
+              authorization: process.env.FAST2SMS_API_KEY, // key MUST be a header
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'Content-Length': Buffer.byteLength(postData),
+            },
+          },
+          (res) => {
+            let data = '';
+            res.on('data', (chunk) => { data += chunk; });
+            res.on('end', () => resolve({ status: res.statusCode, body: data }));
+          }
+        );
+        req.on('error', reject);
+        req.end(postData);
+      });
+
+      let parsed = null;
+      try { parsed = JSON.parse(response.body); } catch { /* ignore */ }
+
+      // Fast2SMS returns HTTP 200 with { return: false, message: ... } on failure —
+      // so we must check the body, not just the status code.
+      if (parsed && parsed.return === true) {
+        console.log(`📱 OTP sent via Fast2SMS to ${phone}`);
+        return { delivered: true, channel: 'fast2sms' };
+      }
+      console.error('❌ Fast2SMS OTP rejected:', response.status, parsed?.message || response.body.slice(0, 200));
+    } catch (err) {
+      console.error('❌ Fast2SMS OTP failed:', err.message);
+    }
+  }
+
+  // 3. MSG91 (last SMS fallback)
+  if (isConfigured(process.env.MSG91_AUTH_KEY, process.env.MSG91_SENDER_ID)) {
     try {
       const https = require('https');
       const path = `/api/v5/otp?authkey=${process.env.MSG91_AUTH_KEY}&mobile=${encodeURIComponent(phone)}&sender=${process.env.MSG91_SENDER_ID}&otp=${code}&template_id=${process.env.MSG91_TEMPLATE_ID || ''}`;
@@ -98,34 +154,6 @@ async function deliverOtp(phone, code) {
       return { delivered: true, channel: 'msg91' };
     } catch (err) {
       console.error('❌ MSG91 OTP failed:', err.message);
-    }
-  }
-
-  // 3. Fast2SMS (India only)
-  if (process.env.FAST2SMS_API_KEY) {
-    try {
-      const https = require('https');
-      const body = JSON.stringify({
-        authorization: process.env.FAST2SMS_API_KEY,
-        sender_id: process.env.FAST2SMS_SENDER_ID || 'FSTSMS',
-        message: `Your Mooncraft OTP is ${code}. Valid 5 min.`,
-        language: 'english',
-        route: 'otp',
-        numbers: phone.replace(/^\+91/, ''),
-      });
-      await new Promise((resolve, reject) => {
-        const req = https.request(
-          { hostname: 'www.fast2sms.com', path: '/dev/bulkV2', method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } },
-          (res) => { res.on('data', () => {}); res.on('end', () => (res.statusCode < 300 ? resolve() : reject(new Error('status ' + res.statusCode)))); }
-        );
-        req.on('error', reject);
-        req.end(body);
-      });
-      console.log(`📱 OTP sent via Fast2SMS to ${phone}`);
-      return { delivered: true, channel: 'fast2sms' };
-    } catch (err) {
-      console.error('❌ Fast2SMS OTP failed:', err.message);
     }
   }
 

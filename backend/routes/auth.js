@@ -512,7 +512,7 @@ router.post(
       const delivery = await deliverOtp(created.phone, created.code);
 
       // If SMS couldn't be delivered and the user has an email on file, send via email
-      if (delivery.channel === 'console' && process.env.GMAIL_USER) {
+      if (delivery.channel === 'console' && process.env.RESEND_API_KEY) {
         const { data: userRow } = await supabase
           .from('users')
           .select('email')

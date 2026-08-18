@@ -1,26 +1,27 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
-// Create transporter using Gmail SMTP (free, no API key needed)
-const createTransporter = () => {
-  return nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD, // Gmail App Password (not your regular password)
-    },
-  });
+// Resend email client (Cloudflare-Workers friendly HTTP API)
+// Requires RESEND_API_KEY. For testing use RESEND_FROM_EMAIL=onboarding@resend.dev
+let resend = null;
+const getResend = () => {
+  if (!resend && process.env.RESEND_API_KEY) {
+    resend = new Resend(process.env.RESEND_API_KEY);
+  }
+  return resend;
 };
+
+const isConfigured = () => !!process.env.RESEND_API_KEY;
+
+const getFrom = () => process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
 
 /**
  * Send order confirmation email to customer
  */
 const sendOrderConfirmationEmail = async (order) => {
-  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+  if (!isConfigured()) {
     console.warn('⚠️  Email not configured. Skipping confirmation email.');
     return false;
   }
-
-  const transporter = createTransporter();
 
   const itemsHtml = order.items
     .map(
@@ -112,7 +113,7 @@ const sendOrderConfirmationEmail = async (order) => {
     <!-- CTA -->
     <div style="padding:0 40px 32px;text-align:center;">
       <p style="font-size:12px;color:#888;margin:0 0 16px;">Questions about your order? Reply to this email or reach us at:</p>
-      <a href="mailto:${process.env.GMAIL_USER}" style="color:#111;font-size:12px;font-weight:600;">${process.env.GMAIL_USER}</a>
+      <a href="mailto:${getFrom()}" style="color:#111;font-size:12px;font-weight:600;">${getFrom()}</a>
     </div>
 
     <!-- Footer -->
@@ -127,8 +128,8 @@ const sendOrderConfirmationEmail = async (order) => {
 </html>`;
 
   try {
-    await transporter.sendMail({
-      from: `"Mooncraft Studio" <${process.env.GMAIL_USER}>`,
+    await getResend().emails.send({
+      from: `"Mooncraft Studio" <${getFrom()}>`,
       to: order.customer.email,
       subject: `✓ Order Confirmed — ${order.orderNumber} | Mooncraft`,
       html,
@@ -146,15 +147,14 @@ const sendOrderConfirmationEmail = async (order) => {
  */
 const sendAdminOrderAlert = async (order) => {
   const adminRecipient = process.env.ADMIN_EMAIL_RECIPIENT || process.env.ADMIN_EMAIL;
-  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD || !adminRecipient) {
+  if (!isConfigured() || !adminRecipient) {
     return false;
   }
-  const transporter = createTransporter();
   const itemsList = order.items.map((i) => `• ${i.name} ×${i.quantity} — ₹${(i.price * i.quantity).toLocaleString('en-IN')}`).join('\n');
 
   try {
-    await transporter.sendMail({
-      from: `"Mooncraft Orders" <${process.env.GMAIL_USER}>`,
+    await getResend().emails.send({
+      from: `"Mooncraft Orders" <${getFrom()}>`,
       to: adminRecipient,
       subject: `🛍️ New Order ${order.orderNumber} — ₹${order.total.toLocaleString('en-IN')}`,
       text: `New order received!\n\nOrder: ${order.orderNumber}\nCustomer: ${order.customer.name} (${order.customer.email})\nPhone: ${order.customer.phone}\nTotal: ₹${order.total.toLocaleString('en-IN')}\n\nItems:\n${itemsList}\n\nShip to:\n${order.customer.address.line1}, ${order.customer.address.city}, ${order.customer.address.state} ${order.customer.address.zip}`,
@@ -170,12 +170,10 @@ const sendAdminOrderAlert = async (order) => {
  * Send password reset email to customer
  */
 const sendPasswordResetEmail = async (email, resetLink, name = '') => {
-  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+  if (!isConfigured()) {
     console.warn('⚠️  Email not configured. Skipping password reset email.');
     return false;
   }
-
-  const transporter = createTransporter();
 
   const html = `
 <!DOCTYPE html>
@@ -215,8 +213,8 @@ const sendPasswordResetEmail = async (email, resetLink, name = '') => {
 </html>`;
 
   try {
-    await transporter.sendMail({
-      from: `"Mooncraft Studio" <${process.env.GMAIL_USER}>`,
+    await getResend().emails.send({
+      from: `"Mooncraft Studio" <${getFrom()}>`,
       to: email,
       subject: `Reset your Mooncraft password`,
       html,
@@ -234,11 +232,10 @@ const sendPasswordResetEmail = async (email, resetLink, name = '') => {
  * number is not reachable on SMS gateways, or for users who prefer email).
  */
 const sendOtpEmail = async (email, code, phone) => {
-  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+  if (!isConfigured()) {
     console.warn('⚠️  Email not configured. Skipping OTP email.');
     return false;
   }
-  const transporter = createTransporter();
   const html = `
 <!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#f8f7f5;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
@@ -266,8 +263,8 @@ const sendOtpEmail = async (email, code, phone) => {
   </div>
 </body></html>`;
   try {
-    await transporter.sendMail({
-      from: `"Mooncraft Studio" <${process.env.GMAIL_USER}>`,
+    await getResend().emails.send({
+      from: `"Mooncraft Studio" <${getFrom()}>`,
       to: email,
       subject: `${code} — Your Mooncraft Login Code`,
       html,

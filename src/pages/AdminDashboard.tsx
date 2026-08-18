@@ -21,8 +21,9 @@ interface Order {
   customer: { name: string; email: string; phone: string; address: { city: string; state: string; line1: string; zip: string; }; };
   items: OrderItem[]; subtotal: number; shipping: number; total: number;
   status: string; payment: { status: string; method?: string };
-  tracking_number?: string; courier_partner?: string; admin_notes?: string;
-  email_sent?: boolean; whatsapp_sent?: boolean;
+  trackingNumber?: string; courierPartner?: string; adminNotes?: string;
+  shipmentId?: string; awbCode?: string;
+  emailSent?: boolean; whatsappSent?: boolean;
   createdAt: string;
 }
 interface OrderItem { name: string; quantity: number; price: number; }
@@ -404,6 +405,13 @@ function OrdersTab() {
   const [trackingNumber, setTrackingNumber] = useState('');
   const [courierPartner, setCourierPartner] = useState('');
   const [shipOrderId, setShipOrderId] = useState('');
+  const [shiprocketLoading, setShiprocketLoading] = useState(false);
+  const [shiprocketError, setShiprocketError] = useState('');
+
+  // Live tracking modal state
+  const [trackingData, setTrackingData] = useState<any>(null);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [showTrackingModal, setShowTrackingModal] = useState(false);
 
   const loadOrders = useCallback(async () => {
     setLoading(true);
@@ -438,8 +446,8 @@ function OrdersTab() {
 
   const openShipModal = (orderId: string, existing?: Order) => {
     setShipOrderId(orderId);
-    setTrackingNumber(existing?.tracking_number || '');
-    setCourierPartner(existing?.courier_partner || '');
+    setTrackingNumber(existing?.trackingNumber || '');
+    setCourierPartner(existing?.courierPartner || '');
     setShowShipModal(true);
   };
 
@@ -448,6 +456,41 @@ function OrdersTab() {
     setShowShipModal(false);
     setTrackingNumber('');
     setCourierPartner('');
+  };
+
+  const shipViaShiprocket = async () => {
+    setShiprocketLoading(true);
+    setShiprocketError('');
+    try {
+      const res = await ordersAPI.shipViaShiprocket(shipOrderId, true);
+      const shipment = res.shipment || {};
+      setTrackingNumber(shipment.awbCode || '');
+      setCourierPartner(shipment.courierName || '');
+      await loadOrders();
+      setShowShipModal(false);
+      setTrackingNumber('');
+      setCourierPartner('');
+    } catch (err: any) {
+      setShiprocketError(err?.message || 'Shiprocket shipment failed');
+    } finally {
+      setShiprocketLoading(false);
+    }
+  };
+
+  const openTrackingModal = async (order: Order) => {
+    setSelectedOrder(order);
+    setTrackingData(null);
+    setShowTrackingModal(true);
+    if (!order.shipmentId) return;
+    setTrackingLoading(true);
+    try {
+      const res = await ordersAPI.getShiprocketTracking(order.id);
+      setTrackingData(res.data);
+    } catch (err: any) {
+      setTrackingData({ error: err?.message || 'Failed to load tracking' });
+    } finally {
+      setTrackingLoading(false);
+    }
   };
 
   const totalPages = Math.ceil(total / LIMIT);
@@ -596,6 +639,19 @@ function OrdersTab() {
                 <button onClick={() => setShowShipModal(false)} className="text-white/30 hover:text-white"><X className="w-4 h-4" /></button>
               </div>
               <div className="flex flex-col gap-3">
+                <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3">
+                  <p className="text-cyan-400 text-[11px] font-semibold mb-1">🚀 Shiprocket Automation</p>
+                  <p className="text-white/40 text-[10px] mb-3">Creates the shipment, generates AWB & picks courier automatically.</p>
+                  <button onClick={shipViaShiprocket} disabled={shiprocketLoading} className="w-full py-2.5 rounded-xl bg-cyan-500 text-white text-sm font-semibold hover:bg-cyan-400 disabled:bg-white/20 transition-colors cursor-pointer flex items-center justify-center gap-2">
+                    {shiprocketLoading ? <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <><Truck className="w-3.5 h-3.5" /> Create Shipment</>}
+                  </button>
+                  {shiprocketError && <p className="text-red-400 text-[10px] mt-2">{shiprocketError}</p>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-px bg-white/10" />
+                  <span className="text-white/30 text-[9px] uppercase tracking-widest">or manual</span>
+                  <div className="flex-1 h-px bg-white/10" />
+                </div>
                 <FormField label="Tracking Number">
                   <input type="text" value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} className={inputClass} placeholder="e.g. BD123456789IN" />
                 </FormField>
@@ -614,6 +670,60 @@ function OrdersTab() {
                   {updatingId === shipOrderId ? <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <><Truck className="w-3.5 h-3.5" /> Confirm Shipped</>}
                 </button>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Live Tracking Modal */}
+      <AnimatePresence>
+        {showTrackingModal && selectedOrder && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+            onClick={() => setShowTrackingModal(false)}
+          >
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[#111] border border-white/10 rounded-2xl w-full max-w-md p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-white font-semibold flex items-center gap-2"><Truck className="w-4 h-4 text-cyan-400" /> Live Tracking</h3>
+                <button onClick={() => setShowTrackingModal(false)} className="text-white/30 hover:text-white"><X className="w-4 h-4" /></button>
+              </div>
+              <p className="text-white/30 text-[10px] font-mono mb-4">{selectedOrder.orderNumber}</p>
+
+              {trackingLoading ? (
+                <div className="flex justify-center py-10">
+                  <div className="w-6 h-6 border-2 border-cyan-500/20 border-t-cyan-400 rounded-full animate-spin" />
+                </div>
+              ) : trackingData?.error ? (
+                <p className="text-red-400 text-sm">{trackingData.error}</p>
+              ) : trackingData ? (
+                <div className="max-h-[50vh] overflow-y-auto">
+                  <div className="bg-white/5 rounded-xl p-3 mb-3">
+                    <p className="text-white/40 text-[10px] mb-1">Status</p>
+                    <p className="text-white font-semibold text-sm">{trackingData?.tracking_data?.track_status || 'In transit'}</p>
+                  </div>
+                  {(trackingData?.tracking_data?.shipment_track_activities || []).slice().reverse().map((a: any, i: number) => (
+                    <div key={i} className="flex gap-3 mb-3">
+                      <div className="flex flex-col items-center">
+                        <div className={`w-2.5 h-2.5 rounded-full mt-1 ${i === 0 ? 'bg-cyan-400' : 'bg-white/15'}`} />
+                        {i < (trackingData.tracking_data.shipment_track_activities.length - 1) && <div className="w-px flex-1 bg-white/10" />}
+                      </div>
+                      <div className="pb-3">
+                        <p className="text-white/80 text-xs">{a.status}</p>
+                        <p className="text-white/30 text-[10px] mt-0.5">{a.activity}</p>
+                        <p className="text-white/20 text-[10px] mt-0.5">{a.date} {a.time}</p>
+                      </div>
+                    </div>
+                  ))}
+                  {!(trackingData?.tracking_data?.shipment_track_activities || []).length && (
+                    <p className="text-white/40 text-xs">No tracking activities yet.</p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-white/40 text-xs">No Shiprocket shipment linked to this order.</p>
+              )}
             </motion.div>
           </motion.div>
         )}
@@ -659,7 +769,12 @@ function OrdersTab() {
                       <p className="text-cyan-400 text-xs font-semibold">{selectedOrder.courierPartner || 'Courier'}</p>
                       <p className="text-white/50 text-[10px] font-mono">{selectedOrder.trackingNumber}</p>
                     </div>
-                    {selectedOrder.trackingNumber && (
+                    {selectedOrder.shipmentId && (
+                      <button onClick={() => openTrackingModal(selectedOrder)} className="ml-auto bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 text-[10px] font-semibold px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer">
+                        Live Tracking
+                      </button>
+                    )}
+                    {selectedOrder.trackingNumber && !selectedOrder.shipmentId && (
                       <button onClick={() => copyText(selectedOrder.trackingNumber!)} className="ml-auto text-white/30 hover:text-white">
                         <Copy className="w-3.5 h-3.5" />
                       </button>
