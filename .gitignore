@@ -12,8 +12,15 @@ npm-debug.log*
 .env.local
 .env.production
 .env.*.local
+.dev.vars
 # Keep the example file
 !.env.example
+
+# Cloudflare
+.wrangler/
+
+# Backend uploads (use R2 in production)
+backend/uploads/
 
 # Editor
 .vscode/settings.json

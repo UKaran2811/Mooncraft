@@ -1,5 +1,5 @@
 // API service layer — centralized fetch wrapper for the Mooncraft backend
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 // Store admin token in memory (not localStorage for security)
 let adminToken: string | null = null;
